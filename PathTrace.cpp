@@ -1,6 +1,6 @@
 //
 // Project: Clion
-// File Name: main2.cpp.c
+// File Name: PathTrace.cpp
 // Author: Morning
 // Description:
 //
@@ -21,6 +21,8 @@
 using namespace glm;
 
 #define INF 2147483647
+#define WIDTH 1024
+#define HEIGHT 1024
 // ----------------------------------------------------------------------------- //
 
 // 物体表面材质定义
@@ -83,8 +85,8 @@ public:
     GLuint vao, vbo;
     std::vector<GLuint> colorAttachments;
     GLuint program;
-    int width = 1920;
-    int height = 1280;
+    int width = WIDTH;
+    int height = HEIGHT;
     void bindData(bool finalPass = false) {
         if (!finalPass) glGenFramebuffers(1, &FBO);
         glBindFramebuffer(GL_FRAMEBUFFER, FBO);
@@ -684,7 +686,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
     //创建窗口以及上下文
-    GLFWwindow* window = glfwCreateWindow(1280, 1280, "hello world", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Path Tracing", nullptr, nullptr);
     if(!window)
     {
         //创建失败会返回NULL
