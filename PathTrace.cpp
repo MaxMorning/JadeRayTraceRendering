@@ -1,4 +1,4 @@
-//
+﻿//
 // Project: Clion
 // File Name: PathTrace.cpp
 // Author: Morning
@@ -13,6 +13,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+#include <iomanip>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>

@@ -10,3 +10,4 @@ cmake-build-debug/
 cmake-build-release/
 .idea/
 *.hdr
+glew32.dll
