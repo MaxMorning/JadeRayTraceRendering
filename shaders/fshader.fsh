@@ -7,6 +7,7 @@ out vec4 fragColor;
 
 uniform uint frameCounter;
 uniform int nTriangles;
+uniform int nEmitTriangles;
 uniform int nNodes;
 uniform int width;
 uniform int height;
@@ -16,6 +17,7 @@ uniform samplerBuffer nodes;
 
 uniform sampler2D lastFrame;
 uniform sampler2D hdrMap;
+uniform isamplerBuffer emitTrianglesIndices;
 
 uniform vec3 eye;
 uniform mat4 cameraRotate;
@@ -24,8 +26,10 @@ uniform mat4 cameraRotate;
 
 #define PI              3.1415926
 #define INF             114514.0
-#define SIZE_TRIANGLE   12
+#define SIZE_TRIANGLE   9
 #define SIZE_BVHNODE    4
+#define STACK_CAPACITY 128
+#define RR_RATE 0.8
 
 // ----------------------------------------------------------------------------- //
 
@@ -48,18 +52,7 @@ struct BVHNode {
 struct Material {
     vec3 emissive;          // 作为光源时的发光颜色
     vec3 baseColor;
-    float subsurface;
-    float metallic;
-    float specular;
-    float specularTint;
-    float roughness;
-    float anisotropic;
-    float sheen;
-    float sheenTint;
-    float clearcoat;
-    float clearcoatGloss;
-    float IOR;
-    float transmission;
+    vec3 brdf;
 };
 
 // 光线
@@ -71,7 +64,7 @@ struct Ray {
 // 光线求交结果
 struct HitResult {
     bool isHit;             // 是否命中
-    bool isInside;          // 是否从内部命中
+    int index;              // 命中三角形坐标
     float distance;         // 与交点的距离
     vec3 hitPoint;          // 光线命中点
     vec3 normal;            // 命中点法线
@@ -179,25 +172,9 @@ Material getMaterial(int i) {
     Material m;
 
     int offset = i * SIZE_TRIANGLE;
-    vec3 param1 = texelFetch(triangles, offset + 8).xyz;
-    vec3 param2 = texelFetch(triangles, offset + 9).xyz;
-    vec3 param3 = texelFetch(triangles, offset + 10).xyz;
-    vec3 param4 = texelFetch(triangles, offset + 11).xyz;
-
     m.emissive = texelFetch(triangles, offset + 6).xyz;
     m.baseColor = texelFetch(triangles, offset + 7).xyz;
-    m.subsurface = param1.x;
-    m.metallic = param1.y;
-    m.specular = param1.z;
-    m.specularTint = param2.x;
-    m.roughness = param2.y;
-    m.anisotropic = param2.z;
-    m.sheen = param3.x;
-    m.sheenTint = param3.y;
-    m.clearcoat = param3.z;
-    m.clearcoatGloss = param4.x;
-    m.IOR = param4.y;
-    m.transmission = param4.z;
+    m.brdf = texelFetch(triangles, offset + 8).xyz;
 
     return m;
 }
@@ -225,11 +202,12 @@ BVHNode getBVHNode(int i) {
 // ----------------------------------------------------------------------------- //
 
 // 光线和三角形求交
-HitResult hitTriangle(Triangle triangle, Ray ray) {
+HitResult hitTriangle(Triangle triangle, Ray ray, int index) {
     HitResult res;
     res.distance = INF;
     res.isHit = false;
-    res.isInside = false;
+    // res.isInside = false;
+    bool isInside = false;
 
     vec3 p1 = triangle.p1;
     vec3 p2 = triangle.p2;
@@ -242,7 +220,7 @@ HitResult hitTriangle(Triangle triangle, Ray ray) {
     // 从三角形背后（模型内部）击中
     if (dot(N, d) > 0.0f) {
         N = -N;
-        res.isInside = true;
+        isInside = true;
     }
 
     // 如果视线和三角形平行
@@ -275,7 +253,8 @@ HitResult hitTriangle(Triangle triangle, Ray ray) {
         float gama  = 1.0 - alpha - beta;
         vec3 Nsmooth = alpha * triangle.n1 + beta * triangle.n2 + gama * triangle.n3;
         Nsmooth = normalize(Nsmooth);
-        res.normal = (res.isInside) ? (-Nsmooth) : (Nsmooth);
+        res.normal = (isInside) ? (-Nsmooth) : (Nsmooth);
+        res.index = index;
     }
 
     return res;
@@ -306,7 +285,7 @@ HitResult hitArray(Ray ray, int l, int r) {
     res.distance = INF;
     for(int i=l; i<=r; i++) {
         Triangle triangle = getTriangle(i);
-        HitResult r = hitTriangle(triangle, ray);
+        HitResult r = hitTriangle(triangle, ray, i);
         if(r.isHit && r.distance<res.distance) {
             res = r;
             res.material = getMaterial(i);
@@ -373,7 +352,7 @@ HitResult hitBVH(Ray ray) {
 // ----------------------------------------------------------------------------- //
 
 // 路径追踪
-vec3 pathTracing(HitResult hit, int maxBounce) {
+vec3 pathTracing_(HitResult hit, int maxBounce) {
 
     vec3 Lo = vec3(0);      // 最终的颜色
     vec3 history = vec3(1); // 递归积累的颜色
@@ -412,6 +391,101 @@ vec3 pathTracing(HitResult hit, int maxBounce) {
     return Lo;
 }
 
+float size(Triangle triangle)
+{
+    vec3 v_1 = triangle.p2 - triangle.p1;
+    vec3 v_2 = triangle.p3 - triangle.p1;
+    vec3 cross_product = vec3(v_1.y * v_2.z - v_1.z * v_2.y, v_1.z * v_2.x - v_1.x * v_2.z, v_1.x * v_2.y - v_1.y * v_2.x);
+    return 0.5 * sqrt(dot(cross_product, cross_product));
+}
+
+vec3 pathTracing(HitResult hit) {
+    vec3 l_dir = vec3(0);
+    int stack_offset = 0;
+    vec3 stack_dir[STACK_CAPACITY];
+    vec3 stack_indir_rate[STACK_CAPACITY];
+    vec3 out_direction = hit.viewDir;
+    vec3 ray_src = hit.hitPoint;
+    HitResult obj_hit = hit;
+    while (stack_offset < STACK_CAPACITY) {
+        // direct light
+        // sample from emit triangles
+        l_dir = vec3(0);
+        for (int i = 0; i < nEmitTriangles; ++i) {
+            // random select a point on light triangle
+            float rand_x = rand();
+            float rand_y = rand();
+            if (rand_x + rand_y > 1) {
+                rand_x = 1 - rand_x;
+                rand_y = 1 - rand_y;
+            }
+
+            int emit_tri_idx = texelFetch(emitTrianglesIndices, i).x;
+            Triangle t_i = getTriangle(emit_tri_idx);
+            vec3 random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
+
+            // test block
+            vec3 obj_light_direction = random_point - ray_src;
+            Ray new_ray;
+            new_ray.startPoint = ray_src;
+            new_ray.direction = obj_light_direction;
+            HitResult hit_result = hitBVH(new_ray);
+
+            if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
+                l_dir += hit_result.material.emissive * obj_hit.material.brdf * abs(dot(obj_hit.normal, obj_light_direction) * dot(hit_result.normal, obj_light_direction)) 
+                            / direction_length_square / direction_length_square * size(t_i);
+                l_dir = vec3(0.5);
+            }
+        }
+
+        return (l_dir.x > 0 || l_dir.y > 0 || l_dir.z > 0) ? vec3(nEmitTriangles / 12.0) : vec3(0);
+        // return l_dir;
+
+
+        float rr_result = rand();
+        if (rr_result < RR_RATE) {
+            vec3 indir_rate = vec3(0);
+            // random select a ray from src_point
+            float cosine_theta = 2 * (rand() - 0.5);
+            float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+            float fai_value = 2 * PI * rand();
+            vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+            if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
+                ray_direction *= -1;
+                cosine_theta *= -1;
+            }
+
+            Ray new_ray;
+            new_ray.startPoint = ray_src;
+            new_ray.direction = ray_direction;
+            HitResult new_hit = hitBVH(new_ray);
+            if (new_hit.isHit && !(new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
+                // Hit something
+                ray_direction *= -1;
+                indir_rate = obj_hit.material.brdf * abs(dot(ray_direction, obj_hit.normal)) / RR_RATE;
+                ray_src = new_hit.hitPoint;
+                out_direction = ray_direction;
+
+                stack_dir[stack_offset] = l_dir;
+                stack_indir_rate[stack_offset] = indir_rate;
+                ++stack_offset;
+                obj_hit = new_hit;
+            }
+        }
+        else {
+            break;
+        }
+    }
+
+    // calc final irradiance
+    for (int i = stack_offset - 1; i >= 0; --i) {
+        l_dir *= stack_indir_rate[i];
+        l_dir += stack_dir[i];
+    }
+    
+    return l_dir;
+}
 // ----------------------------------------------------------------------------- //
 
 void main() {
@@ -421,7 +495,7 @@ void main() {
 
     ray.startPoint = eye;
     vec2 AA = vec2((rand()-0.5)/float(width), (rand()-0.5)/float(height));
-    vec4 dir = cameraRotate * vec4(pix.xy+AA, -1.5, 0.0);
+    vec4 dir = cameraRotate * vec4(pix.xy + AA, -1.5, 0.0);
     ray.direction = normalize(dir.xyz);
 
     // primary hit
@@ -433,12 +507,13 @@ void main() {
         color = sampleHdr(ray.direction);
     } else {
         vec3 Le = firstHit.material.emissive;
-        vec3 Li = pathTracing(firstHit, 2);
+        vec3 Li = pathTracing(firstHit);
+        // vec3 Li = pathTracing_(firstHit, 4);
         color = Le + Li;
     }
 
     // 和上一帧混合
-    vec3 lastColor = texture(lastFrame, pix.xy*0.5+0.5).rgb;
+    vec3 lastColor = texture(lastFrame, pix.xy * 0.5 + 0.5).rgb;
     color = mix(lastColor, color, 1.0/float(frameCounter + uint(1)));
 
     // 输出

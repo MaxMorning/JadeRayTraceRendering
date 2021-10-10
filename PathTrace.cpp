@@ -31,18 +31,7 @@ using namespace glm;
 struct Material {
     vec3 emissive = vec3(0, 0, 0);  // 作为光源时的发光颜色
     vec3 baseColor = vec3(1, 1, 1);
-    float subsurface = 0.0;
-    float metallic = 0.0;
-    float specular = 0.0;
-    float specularTint = 0.0;
-    float roughness = 0.0;
-    float anisotropic = 0.0;
-    float sheen = 0.0;
-    float sheenTint = 0.0;
-    float clearcoat = 0.0;
-    float clearcoatGloss = 0.0;
-    float IOR = 1.0;
-    float transmission = 0.0;
+    vec3 brdf = vec3(0.8, 0.8, 0.8); // BRDF
 };
 
 // 三角形定义
@@ -66,10 +55,7 @@ struct Triangle_encoded {
     vec3 n1, n2, n3;    // 顶点法线
     vec3 emissive;      // 自发光参数
     vec3 baseColor;     // 颜色
-    vec3 param1;        // (subsurface, metallic, specular)
-    vec3 param2;        // (specularTint, roughness, anisotropic)
-    vec3 param3;        // (sheen, sheenTint, clearcoat)
-    vec3 param4;        // (clearcoatGloss, IOR, transmission)
+    vec3 brdf;          // BRDF
 };
 
 struct BVHNode_encoded {
@@ -141,6 +127,7 @@ public:
 
 GLuint trianglesTextureBuffer;
 GLuint nodesTextureBuffer;
+GLuint emitTrianglesIndices;
 GLuint lastFrame;
 GLuint hdrMap;
 
@@ -625,6 +612,10 @@ void display(GLFWwindow* window) {
     glBindTexture(GL_TEXTURE_2D, hdrMap);
     glUniform1i(glGetUniformLocation(pass1.program, "hdrMap"), 3);
 
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, emitTrianglesIndices);
+    glUniform1i(glGetUniformLocation(pass1.program, "emitTrianglesIndices"), 3);
+
     // 绘制
     pass1.draw();
     pass2.draw(pass1.colorAttachments);
@@ -707,13 +698,14 @@ int main()
 
     Material m;
     m.baseColor = vec3(0, 1, 1);
-    readObj("bunny.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.3, -1.6, 0), vec3(1.5, 1.5, 1.5)),true);
+    readObj("model.obj", triangles, m, getTransformMatrix(vec3(1, 0, 0), vec3(0.3, -1.6, 0), vec3(1.5, 1.5, 1.5)),true);
 
     m.baseColor = vec3(1, 1, 1);
-    m.emissive = vec3(20, 20, 20);
-    readObj("quad.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.0, 1.38, -0.0), vec3(0.7, 0.01, 0.7)), false);
+    m.emissive = vec3(60, 60, 60);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.0, 1.38, -0.0), vec3(0.7, 0.01, 0.7)), false);
 
-    int nTriangles = triangles.size();
+    size_t nTriangles = triangles.size();
+
     std::cout << "模型读取完成: 共 " << nTriangles << " 个三角形" << std::endl;
 
     // 建立 bvh
@@ -731,6 +723,8 @@ int main()
 
     // 编码 三角形, 材质
     std::vector<Triangle_encoded> triangles_encoded(nTriangles);
+    std::vector<int> emit_triangles_indices;
+    int nEmitTriangles = 0;
     for (int i = 0; i < nTriangles; i++) {
         Triangle& t = triangles[i];
         Material& m_ = t.material;
@@ -745,10 +739,13 @@ int main()
         // 材质
         triangles_encoded[i].emissive = m_.emissive;
         triangles_encoded[i].baseColor = m_.baseColor;
-        triangles_encoded[i].param1 = vec3(m_.subsurface, m_.metallic, m_.specular);
-        triangles_encoded[i].param2 = vec3(m_.specularTint, m_.roughness, m_.anisotropic);
-        triangles_encoded[i].param3 = vec3(m_.sheen, m_.sheenTint, m_.clearcoat);
-        triangles_encoded[i].param4 = vec3(m_.clearcoatGloss, m_.IOR, m_.transmission);
+        triangles_encoded[i].brdf = m_.brdf;
+
+        // 统计发光三角形
+        if (m_.emissive.x > 0.01 && m_.emissive.y > 0.01 && m_.emissive.z > 0.01) {
+            emit_triangles_indices.push_back(i);
+            ++nEmitTriangles;
+        }
     }
     std::cout << "Hit" << std::endl;
 
@@ -768,18 +765,12 @@ int main()
 
     // 三角形数组
     GLuint tbo0;
-    check_error(-1);
     glGenBuffers(1, &tbo0);
-    check_error(0);
     glBindBuffer(GL_TEXTURE_BUFFER, tbo0);
-    check_error(1);
     glBufferData(GL_TEXTURE_BUFFER, nTriangles * sizeof(Triangle_encoded), &triangles_encoded[0], GL_STATIC_DRAW);
-    check_error(2);
     glGenTextures(1, &trianglesTextureBuffer);
-    check_error(3);
 
     glBindTexture(GL_TEXTURE_BUFFER, trianglesTextureBuffer);
-    check_error(4);
 
     std::cout << "Hit " << GL_MAX_TEXTURE_BUFFER_SIZE << "   " << (char*)(&triangles_encoded[nTriangles - 1]) - (char*)(&triangles_encoded[0]) << "   " << nTriangles * sizeof(Triangle_encoded) << std::endl;
     glTexBuffer(GL_TEXTURE_BUFFER, GL_RGB32F, tbo0);
@@ -797,11 +788,27 @@ int main()
 
     // hdr 全景图
     HDRLoaderResult hdrRes;
-    bool r = HDRLoader::load("background.hdr", hdrRes);
+    HDRLoader::load("background.hdr", hdrRes);
     hdrMap = getTextureRGB32F(hdrRes.width, hdrRes.height);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, hdrRes.width, hdrRes.height, 0, GL_RGB, GL_FLOAT, hdrRes.cols);
     std::cout << "HDR load done." << std::endl;
 
+    // 发光三角形索引
+    GLuint tbo2;
+    check_error(-2);
+    glGenBuffers(1, &tbo2);
+    check_error(-1);
+    glBindBuffer(GL_TEXTURE_BUFFER, tbo2);
+    check_error(0);
+
+    glBufferData(GL_TEXTURE_BUFFER, nEmitTriangles * sizeof(int), &emit_triangles_indices[0], GL_STATIC_DRAW);
+    check_error(1);
+    glGenTextures(1, &emitTrianglesIndices);
+    glBindTexture(GL_TEXTURE_BUFFER, emitTrianglesIndices);
+    check_error(2);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_R32I, tbo2);
+    check_error(3);
+    std::cout << "Emit triangle indices done." << std::endl;
     // ----------------------------------------------------------------------------- //
 
     // 管线配置
@@ -818,6 +825,7 @@ int main()
     glUniform1i(glGetUniformLocation(pass1.program, "nNodes"), nodes.size());
     glUniform1i(glGetUniformLocation(pass1.program, "width"), pass1.width);
     glUniform1i(glGetUniformLocation(pass1.program, "height"), pass1.height);
+    glUniform1i(glGetUniformLocation(pass1.program, "nEmitTriangles"), nEmitTriangles);
     glUseProgram(0);
 
     pass2.program = getShaderProgram("./shaders/pass2.fsh", "./shaders/vshader.vsh");
