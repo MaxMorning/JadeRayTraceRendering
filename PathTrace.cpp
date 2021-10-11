@@ -375,15 +375,16 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
         std::string type;
         GLfloat x, y, z;
         int v0, v1, v2;
-        int vn0, vn1, vn2;
-        int vt0, vt1, vt2;
-        char slash;
 
-//        // 统计斜杆数目，用不同格式读取
-//        int slashCnt = 0;
-//        for (int i = 0; i < line.length(); i++) {
-//            if (line[i] == '/') slashCnt++;
-//        }
+        if (line.length() > 0 && line[0] == '#') {
+            continue;
+        }
+        // 统计斜杆数目，用不同格式读取
+        for (int i = 0; i < line.length(); i++) {
+            if (line[i] == '/') {
+                line[i] = ' ';
+            }
+        }
 
         // 读取obj文件
         sin >> type;
@@ -732,13 +733,13 @@ void move_camera(GLFWwindow* window) {
     if (key_status[GLFW_KEY_DOWN]) {
         frameCounter = 0;
         glfwRestoreWindow(window);
-        upAngle += ROTATE_DELTA * deltaTime;
+        upAngle -= ROTATE_DELTA * deltaTime;
     }
 
     if (key_status[GLFW_KEY_UP]) {
         frameCounter = 0;
         glfwRestoreWindow(window);
-        upAngle -= ROTATE_DELTA * deltaTime;
+        upAngle += ROTATE_DELTA * deltaTime;
     }
 
     if (key_status[GLFW_KEY_LEFT]) {
@@ -775,6 +776,18 @@ void move_camera(GLFWwindow* window) {
         frameCounter = 0;
         glfwRestoreWindow(window);
         eye_center.x += WASD_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_H]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        r -= WASD_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_N]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        r += WASD_DELTA * deltaTime;
     }
 }
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
@@ -839,11 +852,20 @@ int main()
 
     Material m;
     m.brdf = vec3(0, 1, 1);
-    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(1, 1, 1)),true);
+    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
     m.brdf = vec3(1, 1, 1);
     m.emissive = vec3(60, 60, 60);
     readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), false);
+
+    // Cornell Box
+//    r = 8;
+//    m.brdf = vec3(0.72, 0.72, 0.72);
+//    readObj("cornell.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(559.2, 559.2, 559.2)),true);
+//
+//    m.brdf = vec3(1, 1, 1);
+//    m.emissive = vec3(60, 60, 60);
+//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(2.78, 5.488, 2.795), vec3(1.30, 1.30, 1.30)), false);
 
     size_t nTriangles = triangles.size();
 
