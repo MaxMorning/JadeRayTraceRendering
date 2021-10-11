@@ -202,7 +202,7 @@ BVHNode getBVHNode(int i) {
 // ----------------------------------------------------------------------------- //
 
 // 光线和三角形求交
-HitResult hitTriangle(Triangle triangle, Ray ray, int index) {
+HitResult hitTriangle_(Triangle triangle, Ray ray, int index) {
     HitResult res;
     res.distance = INF;
     res.isHit = false;
@@ -255,6 +255,66 @@ HitResult hitTriangle(Triangle triangle, Ray ray, int index) {
         Nsmooth = normalize(Nsmooth);
         res.normal = (isInside) ? (-Nsmooth) : (Nsmooth);
         res.index = index;
+    }
+
+    return res;
+}
+
+float mixed_product(vec3 vec_a, vec3 vec_b, vec3 vec_c)
+{
+    return vec_a.x * (vec_b.y * vec_c.z - vec_b.z * vec_c.y) + 
+        vec_a.y * (vec_b.z * vec_c.x - vec_b.x * vec_c.z) + 
+        vec_a.z * (vec_b.x * vec_c.y - vec_b.y * vec_c.x);
+}
+
+HitResult hitTriangle(Triangle triangle, Ray ray, int index) {
+    HitResult res;
+    res.distance = INF;
+    res.isHit = false;
+
+    vec3 normal_direction = normalize(ray.direction);
+    vec3 src_point = ray.startPoint;
+    // make shadow
+    vec3 shadow_tri_a = triangle.p1 - normal_direction * dot(normal_direction, triangle.p1 - src_point);
+    vec3 shadow_tri_b = triangle.p2 - normal_direction * dot(normal_direction, triangle.p2 - src_point);
+    vec3 shadow_tri_c = triangle.p3 - normal_direction * dot(normal_direction, triangle.p3 - src_point);
+
+    // check in center
+    vec3 vec_pa = shadow_tri_a - src_point;
+    vec3 vec_pb = shadow_tri_b - src_point;
+    vec3 vec_pc = shadow_tri_c - src_point;
+
+    float papb = mixed_product(normal_direction, vec_pa, vec_pb);
+    float pbpc = mixed_product(normal_direction, vec_pb, vec_pc);
+    float pcpa = mixed_product(normal_direction, vec_pc, vec_pa);
+    if ((papb > 0 && pbpc > 0 && pcpa > 0) || (papb < 0 && pbpc < 0 && pcpa < 0)) {
+        // in center
+        // get hit point
+        // get coordinary, reuse vec_pb ,vec_pc
+        vec_pb = shadow_tri_b - shadow_tri_a;
+        vec_pc = shadow_tri_c - shadow_tri_a;
+        vec_pa = src_point - shadow_tri_a;
+        float divider = vec_pb.x * vec_pc.y - vec_pb.y * vec_pc.x;
+        float rate_a = (vec_pc.y * vec_pa.x - vec_pc.x * vec_pa.y) / divider;
+        float rate_b = (-vec_pb.y * vec_pa.x + vec_pb.x * vec_pa.y) / divider;
+
+        vec_pb = triangle.p2 - triangle.p1;
+        vec_pc = triangle.p3 - triangle.p1;
+        vec_pa = triangle.p1 + rate_a * vec_pb + rate_b * vec_pc;
+
+        float distance = dot(vec_pa - src_point, normal_direction);
+        // printf("Rate : %f %f %f\n", rate_a, rate_b, distance / norm3df(vec_pa.x - src_point.x, vec_pa.y - src_point.y, vec_pa.z - src_point.z));
+        if (distance > 0) {
+            // printf("In Center : %f, %f, %f %f\n", papb, pbpc, pcpa, distance);
+            // ray will hit object
+            // package result
+            res.isHit = true;
+            res.hitPoint = vec_pa;
+            res.distance = distance;
+            res.normal = normalize(cross(triangle.p2 - triangle.p1, triangle.p3 - triangle.p1));
+            res.viewDir = ray.direction;
+            res.index = index;
+        }
     }
 
     return res;
