@@ -495,11 +495,11 @@ vec3 pathTracing(HitResult hit) {
                 float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
                 l_dir += hit_result.material.emissive * obj_hit.material.brdf * abs(dot(obj_hit.normal, obj_light_direction) * dot(hit_result.normal, obj_light_direction)) 
                             / direction_length_square / direction_length_square * size(t_i);
-                l_dir = vec3(0.5);
+                // l_dir = vec3(0.5);
             }
         }
 
-        return (l_dir.x > 0 || l_dir.y > 0 || l_dir.z > 0) ? vec3(nEmitTriangles / 12.0) : vec3(0);
+        // return (l_dir.x > 0 || l_dir.y > 0 || l_dir.z > 0) ? vec3(nEmitTriangles / 12.0) : vec3(0);
         // return l_dir;
 
 

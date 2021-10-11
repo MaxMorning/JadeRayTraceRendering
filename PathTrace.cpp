@@ -141,6 +141,34 @@ float rotatAngle = 0.0;
 float r = 4.0;
 
 // ----------------------------------------------------------------------------- //
+void check_error(int i)
+{
+    printf("%d : ", i);
+    GLenum error;
+    if((error = glGetError()) != GL_NO_ERROR)
+    {
+        switch (error)
+        {
+            case GL_INVALID_ENUM:
+                printf("GL Error: GL_INVALID_ENUM \n");
+                break;
+            case GL_INVALID_VALUE:
+                printf("GL Error: GL_INVALID_VALUE \n");
+                break;
+            case GL_INVALID_OPERATION:
+                printf("GL Error: GL_INVALID_OPERATION \n");
+                break;
+            case GL_OUT_OF_MEMORY:
+                printf("GL Error: GL_OUT_OF_MEMORY \n");
+                break;
+            default:
+                printf("GL Error: 0x%x\n",error);
+                break;
+        }
+    } else {
+        printf("\n");
+    }
+}
 
 // 按照三角形中心排序 -- 比较函数
 bool cmpx(const Triangle& t1, const Triangle& t2) {
@@ -613,9 +641,8 @@ void display(GLFWwindow* window) {
     glUniform1i(glGetUniformLocation(pass1.program, "hdrMap"), 3);
 
     glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, emitTrianglesIndices);
-    glUniform1i(glGetUniformLocation(pass1.program, "emitTrianglesIndices"), 3);
-
+    glBindTexture(GL_TEXTURE_BUFFER, emitTrianglesIndices);
+    glUniform1i(glGetUniformLocation(pass1.program, "emitTrianglesIndices"), 4);
     // 绘制
     pass1.draw();
     pass2.draw(pass1.colorAttachments);
@@ -628,36 +655,6 @@ void display(GLFWwindow* window) {
 void frameFunc() {
     glfwPollEvents();
 }
-
-void check_error(int i)
-{
-    printf("%d : ", i);
-    GLenum error;
-    if((error = glGetError()) != GL_NO_ERROR)
-    {
-        switch (error)
-        {
-            case GL_INVALID_ENUM:
-                printf("GL Error: GL_INVALID_ENUM \n");
-                break;
-            case GL_INVALID_VALUE:
-                printf("GL Error: GL_INVALID_VALUE \n");
-                break;
-            case GL_INVALID_OPERATION:
-                printf("GL Error: GL_INVALID_OPERATION \n");
-                break;
-            case GL_OUT_OF_MEMORY:
-                printf("GL Error: GL_OUT_OF_MEMORY \n");
-                break;
-            default:
-                printf("GL Error: 0x%x\n",error);
-                break;
-        }
-    } else {
-        printf("\n");
-    }
-}
-
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
@@ -795,19 +792,13 @@ int main()
 
     // 发光三角形索引
     GLuint tbo2;
-    check_error(-2);
     glGenBuffers(1, &tbo2);
-    check_error(-1);
     glBindBuffer(GL_TEXTURE_BUFFER, tbo2);
-    check_error(0);
 
     glBufferData(GL_TEXTURE_BUFFER, nEmitTriangles * sizeof(int), &emit_triangles_indices[0], GL_STATIC_DRAW);
-    check_error(1);
     glGenTextures(1, &emitTrianglesIndices);
     glBindTexture(GL_TEXTURE_BUFFER, emitTrianglesIndices);
-    check_error(2);
     glTexBuffer(GL_TEXTURE_BUFFER, GL_R32I, tbo2);
-    check_error(3);
     std::cout << "Emit triangle indices done." << std::endl;
     // ----------------------------------------------------------------------------- //
 
