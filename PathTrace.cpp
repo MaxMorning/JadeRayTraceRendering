@@ -195,7 +195,7 @@ RenderPass pass3;
 
 // 相机参数
 float upAngle = 0.0;
-float rotatAngle = 0.0;
+float rotateAngle = 0.0;
 float r = 4.0;
 
 // ----------------------------------------------------------------------------- //
@@ -406,7 +406,9 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
     float leny = maxy - miny;
     float lenz = maxz - minz;
     float maxaxis = max(lenx, max(leny, lenz));
+    vec3 center = vec3((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
     for (auto& v : vertices) {
+        v -= center;
         v.x /= maxaxis;
         v.y /= maxaxis;
         v.z /= maxaxis;
@@ -660,6 +662,7 @@ int buildBVHwithSAH(std::vector<Triangle>& triangles, std::vector<BVHNode>& node
 clock_t t1, t2;
 double dt, fps;
 unsigned int frameCounter = 0;
+vec3 eye_center = vec3(0);
 void display(GLFWwindow* window) {
 
     // 帧计时
@@ -670,9 +673,9 @@ void display(GLFWwindow* window) {
     t1 = t2;
 
     // 相机参数
-    vec3 eye = vec3(-sin(radians(rotatAngle)) * cos(radians(upAngle)), sin(radians(upAngle)), cos(radians(rotatAngle)) * cos(radians(upAngle)));
+    vec3 eye = vec3(-sin(radians(rotateAngle)) * cos(radians(upAngle)), sin(radians(upAngle)), cos(radians(rotateAngle)) * cos(radians(upAngle)));
     eye.x *= r; eye.y *= r; eye.z *= r;
-    mat4 cameraRotate = lookAt(eye, vec3(0, 0, 0), vec3(0, 1, 0));  // 相机注视着原点
+    mat4 cameraRotate = lookAt(eye, eye_center, vec3(0, 1, 0));  // 相机注视着原点
     cameraRotate = inverse(cameraRotate);   // lookat 的逆矩阵将光线方向进行转换
 
     // 传 uniform 给 pass1
@@ -713,19 +716,95 @@ void frameFunc() {
     glfwPollEvents();
 }
 
+#define WASD_DELTA 2
+#define ROTATE_DELTA 20
+#define KEY_STATUS_SIZE 266
+
+bool key_status[KEY_STATUS_SIZE] = {false};
+GLfloat deltaTime = 0.0f;
+GLfloat prevFrameTime = 0.0f;
+
+void move_camera(GLFWwindow* window) {
+    GLfloat currentFrame = glfwGetTime();
+    deltaTime = currentFrame - prevFrameTime;
+    prevFrameTime = currentFrame;
+
+    if (key_status[GLFW_KEY_DOWN]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        upAngle += ROTATE_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_UP]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        upAngle -= ROTATE_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_LEFT]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        rotateAngle += ROTATE_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_RIGHT]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        rotateAngle -= ROTATE_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_W]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        eye_center.y += WASD_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_S]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        eye_center.y -= WASD_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_A]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        eye_center.x -= WASD_DELTA * deltaTime;
+    }
+
+    if (key_status[GLFW_KEY_D]) {
+        frameCounter = 0;
+        glfwRestoreWindow(window);
+        eye_center.x += WASD_DELTA * deltaTime;
+    }
+}
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
     //如果按下ESC，把windowShouldClose设置为True，外面的循环会关闭应用
-    if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GL_TRUE);
-        std::cout << "ESC" << std::endl;
+    if (action == GLFW_PRESS) {
+        switch (key) {
+            case GLFW_KEY_ESCAPE:
+            {
+                glfwSetWindowShouldClose(window, GL_TRUE);
+                std::cout << "ESC" << std::endl;
+            }
+                break;
+
+            case GLFW_KEY_SPACE:
+            {
+                std::cout << "SAVE" << std::endl;
+                unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
+                glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
+                save_image(image, WIDTH, HEIGHT);
+                delete[] image;
+            }
+                break;
+
+            default:
+                key_status[key] = true;
+        }
     }
-    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-        std::cout << "SAVE" << std::endl;
-        unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
-        glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
-        save_image(image, WIDTH, HEIGHT);
-        delete[] image;
+    else if (action == GLFW_RELEASE) {
+        key_status[key] = false;
     }
 }
 
@@ -760,11 +839,11 @@ int main()
 
     Material m;
     m.brdf = vec3(0, 1, 1);
-    readObj("model.obj", triangles, m, getTransformMatrix(vec3(1, 0, 0), vec3(0.3, -1.6, 0), vec3(1.5, 1.5, 1.5)),true);
+    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(1, 1, 1)),true);
 
     m.brdf = vec3(1, 1, 1);
     m.emissive = vec3(60, 60, 60);
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.0, 1.38, -0.0), vec3(0.7, 0.01, 0.7)), false);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), false);
 
     size_t nTriangles = triangles.size();
 
@@ -903,6 +982,7 @@ int main()
         /*******轮询事件*******/
         glfwPollEvents();
 
+        move_camera(window);
         display(window);
     }
     glfwTerminate();

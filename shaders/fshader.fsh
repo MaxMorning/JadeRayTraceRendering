@@ -596,8 +596,8 @@ void main() {
         color = sampleHdr(ray.direction);
     } else {
         vec3 Le = firstHit.material.emissive;
-        vec3 Li = pathTracing(firstHit);
-        // vec3 Li = pathTracing_(firstHit, 4);
+        // vec3 Li = pathTracing(firstHit);
+        vec3 Li = pathTracing_(firstHit, 2);
         color = Le + Li;
     }
 
