@@ -26,7 +26,7 @@ uniform mat4 cameraRotate;
 
 #define PI              3.1415926
 #define INF             114514.0
-#define SIZE_TRIANGLE   9
+#define SIZE_TRIANGLE   8
 #define SIZE_BVHNODE    4
 #define STACK_CAPACITY 128
 #define RR_RATE 0.8
@@ -51,7 +51,6 @@ struct BVHNode {
 // 物体表面材质定义
 struct Material {
     vec3 emissive;          // 作为光源时的发光颜色
-    vec3 baseColor;
     vec3 brdf;
 };
 
@@ -173,8 +172,7 @@ Material getMaterial(int i) {
 
     int offset = i * SIZE_TRIANGLE;
     m.emissive = texelFetch(triangles, offset + 6).xyz;
-    m.baseColor = texelFetch(triangles, offset + 7).xyz;
-    m.brdf = texelFetch(triangles, offset + 8).xyz;
+    m.brdf = texelFetch(triangles, offset + 7).xyz;
 
     return m;
 }
@@ -339,23 +337,29 @@ float hitAABB(Ray r, vec3 AA, vec3 BB) {
 // ----------------------------------------------------------------------------- //
 
 // 暴力遍历数组下标范围 [l, r] 求最近交点
-HitResult hitArray(Ray ray, int l, int r) {
+HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
     HitResult res;
     res.isHit = false;
     res.distance = INF;
+    int min_i = l;
     for(int i=l; i<=r; i++) {
+        if (i == src_object_idx) {
+            continue;
+        }
         Triangle triangle = getTriangle(i);
-        HitResult r = hitTriangle(triangle, ray, i);
-        if(r.isHit && r.distance<res.distance) {
-            res = r;
-            res.material = getMaterial(i);
+        HitResult new_hit = hitTriangle(triangle, ray, i);
+        if(new_hit.isHit && new_hit.distance < res.distance) {
+            res = new_hit;
+            min_i = i;
+            // res.material = getMaterial(i);
         }
     }
+    res.material = getMaterial(min_i);
     return res;
 }
 
 // 遍历 BVH 求交
-HitResult hitBVH(Ray ray) {
+HitResult hitBVH(Ray ray, int src_object_idx) {
     HitResult res;
     res.isHit = false;
     res.distance = INF;
@@ -373,7 +377,7 @@ HitResult hitBVH(Ray ray) {
         if(node.n>0) {
             int L = node.index;
             int R = node.index + node.n - 1;
-            HitResult r = hitArray(ray, L, R);
+            HitResult r = hitArray(ray, L, R, src_object_idx);
             if(r.isHit && r.distance<res.distance) res = r;
             continue;
         }
@@ -425,12 +429,12 @@ vec3 pathTracing_(HitResult hit, int maxBounce) {
         Ray randomRay;
         randomRay.startPoint = hit.hitPoint;
         randomRay.direction = wi;
-        HitResult newHit = hitBVH(randomRay);
+        HitResult newHit = hitBVH(randomRay, hit.index);
 
         float pdf = 1.0 / (2.0 * PI);                                   // 半球均匀采样概率密度
         float cosine_o = max(0, dot(-hit.viewDir, hit.normal));         // 入射光和法线夹角余弦
         float cosine_i = max(0, dot(randomRay.direction, hit.normal));  // 出射光和法线夹角余弦
-        vec3 f_r = hit.material.baseColor / PI;                         // 漫反射 BRDF
+        vec3 f_r = hit.material.brdf / PI;                         // 漫反射 BRDF
 
         // 未命中
         if(!newHit.isHit) {
@@ -489,7 +493,7 @@ vec3 pathTracing(HitResult hit) {
             Ray new_ray;
             new_ray.startPoint = ray_src;
             new_ray.direction = obj_light_direction;
-            HitResult hit_result = hitBVH(new_ray);
+            HitResult hit_result = hitBVH(new_ray, obj_hit.index);
 
             if (hit_result.isHit && hit_result.index == emit_tri_idx) {
                 float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
@@ -499,9 +503,32 @@ vec3 pathTracing(HitResult hit) {
             }
         }
 
-        // return (l_dir.x > 0 || l_dir.y > 0 || l_dir.z > 0) ? vec3(nEmitTriangles / 12.0) : vec3(0);
-        // return l_dir;
 
+        // sample from HDR
+        // random select a point on HDR Texture
+        float cosine_theta = 2 * (rand() - 0.5);
+        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+        float fai_value = 2 * PI * rand();
+        vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+        if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
+            ray_direction *= -1;
+        }
+
+        // test block
+        Ray new_ray;
+        new_ray.startPoint = ray_src;
+        new_ray.direction = ray_direction;
+        HitResult hit_result = hitBVH(new_ray, obj_hit.index);
+        if (hit_result.index == obj_hit.index) {
+            vec3 skyColor = sampleHdr(ray_direction);
+            l_dir += skyColor * obj_hit.material.brdf * abs(dot(obj_hit.normal, ray_direction)) * 2 * PI;
+            // l_dir = vec3(1);
+        }
+        // else {
+        //     l_dir = vec3(0);
+        // }
+
+        return l_dir;
 
         float rr_result = rand();
         if (rr_result < RR_RATE) {
@@ -519,7 +546,7 @@ vec3 pathTracing(HitResult hit) {
             Ray new_ray;
             new_ray.startPoint = ray_src;
             new_ray.direction = ray_direction;
-            HitResult new_hit = hitBVH(new_ray);
+            HitResult new_hit = hitBVH(new_ray, obj_hit.index);
             if (new_hit.isHit && !(new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
                 // Hit something
                 ray_direction *= -1;
@@ -559,7 +586,7 @@ void main() {
     ray.direction = normalize(dir.xyz);
 
     // primary hit
-    HitResult firstHit = hitBVH(ray);
+    HitResult firstHit = hitBVH(ray, -1);
     vec3 color;
 
     if(!firstHit.isHit) {
@@ -567,8 +594,8 @@ void main() {
         color = sampleHdr(ray.direction);
     } else {
         vec3 Le = firstHit.material.emissive;
-        vec3 Li = pathTracing(firstHit);
-        // vec3 Li = pathTracing_(firstHit, 4);
+        // vec3 Li = pathTracing(firstHit);
+        vec3 Li = pathTracing_(firstHit, 4);
         color = Le + Li;
     }
 

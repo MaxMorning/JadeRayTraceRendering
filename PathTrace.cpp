@@ -30,7 +30,6 @@ using namespace glm;
 // 物体表面材质定义
 struct Material {
     vec3 emissive = vec3(0, 0, 0);  // 作为光源时的发光颜色
-    vec3 baseColor = vec3(1, 1, 1);
     vec3 brdf = vec3(0.8, 0.8, 0.8); // BRDF
 };
 
@@ -54,7 +53,6 @@ struct Triangle_encoded {
     vec3 p1, p2, p3;    // 顶点坐标
     vec3 n1, n2, n3;    // 顶点法线
     vec3 emissive;      // 自发光参数
-    vec3 baseColor;     // 颜色
     vec3 brdf;          // BRDF
 };
 
@@ -64,6 +62,66 @@ struct BVHNode_encoded {
     vec3 AA, BB;
 };
 
+// ----------------------------------------------------------------------------- //
+// BMP Operation
+// 文件信息头结构体
+typedef struct
+{
+    unsigned int   bfSize;        // 文件大小 以字节为单位(2-5字节)
+    unsigned short bfReserved1;   // 保留，必须设置为0 (6-7字节)
+    unsigned short bfReserved2;   // 保留，必须设置为0 (8-9字节)
+    unsigned int   bfOffBits;     // 从文件头到像素数据的偏移  (10-13字节)
+} _BITMAPFILEHEADER;
+
+//图像信息头结构体
+typedef struct
+{
+    unsigned int    biSize;          // 此结构体的大小 (14-17字节)
+    int             biWidth;         // 图像的宽  (18-21字节)
+    int             biHeight;        // 图像的高  (22-25字节)
+    unsigned short  biPlanes;        // 表示bmp图片的平面属，显然显示器只有一个平面，所以恒等于1 (26-27字节)
+    unsigned short  biBitCount;      // 一像素所占的位数，一般为24   (28-29字节)
+    unsigned int    biCompression;   // 说明图象数据压缩的类型，0为不压缩。 (30-33字节)
+    unsigned int    biSizeImage;     // 像素数据所占大小, 这个值应该等于上面文件头结构中bfSize-bfOffBits (34-37字节)
+    int             biXPelsPerMeter; // 说明水平分辨率，用象素/米表示。一般为0 (38-41字节)
+    int             biYPelsPerMeter; // 说明垂直分辨率，用象素/米表示。一般为0 (42-45字节)
+    unsigned int    biClrUsed;       // 说明位图实际使用的彩色表中的颜色索引数（设为0的话，则说明使用所有调色板项）。 (46-49字节)
+    unsigned int    biClrImportant;  // 说明对图象显示有重要影响的颜色索引的数目，如果是0，表示都重要。(50-53字节)
+} _BITMAPINFOHEADER;
+
+void save_image(unsigned char* target_img, int width, int height)
+{
+    FILE* file_ptr = fopen("RenderResult.bmp", "wb+");
+
+    unsigned short fileType = 0x4d42;
+    _BITMAPFILEHEADER fileHeader;
+    _BITMAPINFOHEADER infoHeader;
+
+    fileHeader.bfSize = (width) * (height) * 3 + 54;
+    fileHeader.bfReserved1 = 0;
+    fileHeader.bfReserved2 = 0;
+    fileHeader.bfOffBits = 54;
+
+    infoHeader.biSize = 40;
+    infoHeader.biWidth = width;
+    infoHeader.biHeight = height;
+    infoHeader.biPlanes = 1;
+    infoHeader.biBitCount = 24;
+    infoHeader.biCompression = 0;
+    infoHeader.biSizeImage = (width) * (height) * 3;
+    infoHeader.biXPelsPerMeter = 0;
+    infoHeader.biYPelsPerMeter = 0;
+    infoHeader.biClrUsed = 0;
+    infoHeader.biClrImportant = 0;
+
+    fwrite(&fileType, sizeof(unsigned short), 1, file_ptr);
+    fwrite(&fileHeader, sizeof(_BITMAPFILEHEADER), 1, file_ptr);
+    fwrite(&infoHeader, sizeof(_BITMAPINFOHEADER), 1, file_ptr);
+
+    fwrite(target_img, sizeof(unsigned char), (height) * (width) * 3, file_ptr);
+
+    fclose(file_ptr);
+}
 
 // ----------------------------------------------------------------------------- //
 
@@ -608,8 +666,7 @@ void display(GLFWwindow* window) {
     t2 = clock();
     dt = (double)(t2 - t1) / CLOCKS_PER_SEC;
     fps = 1.0 / dt;
-    std::cout << "\r";
-    std::cout << std::fixed << std::setprecision(2) << "FPS : " << fps << "    迭代次数: " << frameCounter;
+    std::cout << std::fixed << std::setprecision(2) << "FPS : " << fps << "    迭代次数: " << frameCounter << std::endl;
     t1 = t2;
 
     // 相机参数
@@ -659,9 +716,17 @@ void frameFunc() {
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
     //如果按下ESC，把windowShouldClose设置为True，外面的循环会关闭应用
-    if(key==GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GL_TRUE);
-    std::cout<<"ESC"<<mode;
+        std::cout << "ESC" << std::endl;
+    }
+    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        std::cout << "SAVE" << std::endl;
+        unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
+        glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
+        save_image(image, WIDTH, HEIGHT);
+        delete[] image;
+    }
 }
 
 int main()
@@ -694,10 +759,10 @@ int main()
     std::vector<Triangle> triangles;
 
     Material m;
-    m.baseColor = vec3(0, 1, 1);
+    m.brdf = vec3(0, 1, 1);
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(1, 0, 0), vec3(0.3, -1.6, 0), vec3(1.5, 1.5, 1.5)),true);
 
-    m.baseColor = vec3(1, 1, 1);
+    m.brdf = vec3(1, 1, 1);
     m.emissive = vec3(60, 60, 60);
     readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.0, 1.38, -0.0), vec3(0.7, 0.01, 0.7)), false);
 
@@ -735,7 +800,6 @@ int main()
         triangles_encoded[i].n3 = t.n3;
         // 材质
         triangles_encoded[i].emissive = m_.emissive;
-        triangles_encoded[i].baseColor = m_.baseColor;
         triangles_encoded[i].brdf = m_.brdf;
 
         // 统计发光三角形
@@ -744,7 +808,6 @@ int main()
             ++nEmitTriangles;
         }
     }
-    std::cout << "Hit" << std::endl;
 
     // 编码 BVHNode, aabb
     std::vector<BVHNode_encoded> nodes_encoded(nNodes);
@@ -769,7 +832,6 @@ int main()
 
     glBindTexture(GL_TEXTURE_BUFFER, trianglesTextureBuffer);
 
-    std::cout << "Hit " << GL_MAX_TEXTURE_BUFFER_SIZE << "   " << (char*)(&triangles_encoded[nTriangles - 1]) - (char*)(&triangles_encoded[0]) << "   " << nTriangles * sizeof(Triangle_encoded) << std::endl;
     glTexBuffer(GL_TEXTURE_BUFFER, GL_RGB32F, tbo0);
     std::cout << "GL Triangle Set." << std::endl;
 
