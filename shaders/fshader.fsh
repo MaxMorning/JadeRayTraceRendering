@@ -423,7 +423,13 @@ vec3 pathTracing_(HitResult hit, int maxBounce) {
 
     for(int bounce=0; bounce<maxBounce; bounce++) {
         // 随机出射方向 wi
-        vec3 wi = toNormalHemisphere(SampleHemisphere(), hit.normal);
+        float cosine_theta = 2 * (rand() - 0.5);
+        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+        float fai_value = 2 * PI * rand();
+        vec3 wi = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+        if (dot(wi, hit.normal) * dot(hit.viewDir, hit.normal) > 0) {
+            wi *= -1;
+        }
 
         // 漫反射: 随机发射光线
         Ray randomRay;
@@ -432,8 +438,8 @@ vec3 pathTracing_(HitResult hit, int maxBounce) {
         HitResult newHit = hitBVH(randomRay, hit.index);
 
         float pdf = 1.0 / (2.0 * PI);                                   // 半球均匀采样概率密度
-        float cosine_o = max(0, dot(-hit.viewDir, hit.normal));         // 入射光和法线夹角余弦
-        float cosine_i = max(0, dot(randomRay.direction, hit.normal));  // 出射光和法线夹角余弦
+        // float cosine_o = abs(dot(-hit.viewDir, hit.normal));         // 入射光和法线夹角余弦
+        float cosine_i = abs(dot(randomRay.direction, hit.normal));  // 出射光和法线夹角余弦
         vec3 f_r = hit.material.brdf / PI;                         // 漫反射 BRDF
 
         // 未命中

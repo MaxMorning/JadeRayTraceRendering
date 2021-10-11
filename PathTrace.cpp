@@ -700,7 +700,7 @@ void frameFunc() {
 
 #define WASD_DELTA 2
 #define ROTATE_DELTA 20
-#define KEY_STATUS_SIZE 266
+#define KEY_STATUS_SIZE 349
 
 bool key_status[KEY_STATUS_SIZE] = {false};
 GLfloat deltaTime = 0.0f;
@@ -783,7 +783,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             }
                 break;
 
-            case GLFW_KEY_SPACE:
+            case GLFW_KEY_T:
             {
                 std::cout << "SAVE" << std::endl;
                 unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
@@ -832,21 +832,21 @@ int main()
     std::vector<Triangle> triangles;
 
     Material m;
-    m.brdf = vec3(0, 1, 1);
-    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
-
-    m.brdf = vec3(1, 1, 1);
-    m.emissive = vec3(60, 60, 60);
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), false);
-
-    // Cornell Box
-//    r = 8;
-//    m.brdf = vec3(0.72, 0.72, 0.72);
-//    readObj("cornell.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(559.2, 559.2, 559.2)),true);
+//    m.brdf = vec3(0, 1, 1);
+//    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 //
 //    m.brdf = vec3(1, 1, 1);
 //    m.emissive = vec3(60, 60, 60);
-//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(2.78, 5.488, 2.795), vec3(1.30, 1.30, 1.30)), false);
+//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), false);
+
+    // Cornell Box
+    r = 8;
+    m.brdf = vec3(0.72, 0.72, 0.72);
+    readObj("cornell.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(5.592, 5.592, 5.592)),true);
+
+    m.brdf = vec3(1, 1, 1);
+    m.emissive = vec3(60, 60, 60);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0, 5.488, 0), vec3(1.30, 1.30, 1.30)), false);
 
     size_t nTriangles = triangles.size();
 
