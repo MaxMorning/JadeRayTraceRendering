@@ -36,7 +36,7 @@ struct Material {
 // 三角形定义
 struct Triangle {
     vec3 p1, p2, p3;    // 顶点坐标
-    vec3 n1, n2, n3;    // 顶点法线
+    vec3 norm;    // 顶点法线
     Material material;  // 材质
 };
 
@@ -51,7 +51,7 @@ struct BVHNode {
 
 struct Triangle_encoded {
     vec3 p1, p2, p3;    // 顶点坐标
-    vec3 n1, n2, n3;    // 顶点法线
+    vec3 norm;          // 法线
     vec3 emissive;      // 自发光参数
     vec3 brdf;          // BRDF
 };
@@ -422,18 +422,6 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
         v = vec3(vv.x, vv.y, vv.z);
     }
 
-    // 生成法线
-    std::vector<vec3> normals(vertices.size(), vec3(0, 0, 0));
-    for (int i = 0; i < indices.size(); i += 3) {
-        vec3 p1 = vertices[indices[i]];
-        vec3 p2 = vertices[indices[i + 1]];
-        vec3 p3 = vertices[indices[i + 2]];
-        vec3 n = normalize(cross(p2 - p1, p3 - p1));
-        normals[indices[i]] += n;
-        normals[indices[i + 1]] += n;
-        normals[indices[i + 2]] += n;
-    }
-
     // 构建 Triangle 对象数组
     int offset = triangles.size();  // 增量更新
 
@@ -445,15 +433,8 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
         t.p1 = vertices[indices[i]];
         t.p2 = vertices[indices[i + 1]];
         t.p3 = vertices[indices[i + 2]];
-        if (!smoothNormal) {
-            vec3 n = normalize(cross(t.p2 - t.p1, t.p3 - t.p1));
-            t.n1 = n; t.n2 = n; t.n3 = n;
-        }
-        else {
-            t.n1 = normalize(normals[indices[i]]);
-            t.n2 = normalize(normals[indices[i + 1]]);
-            t.n3 = normalize(normals[indices[i + 2]]);
-        }
+        // 计算法线
+        t.norm = normalize(cross(t.p2 - t.p1, t.p3 - t.p1));
 
         // 传材质
         t.material = material;
@@ -896,9 +877,7 @@ int main()
         triangles_encoded[i].p2 = t.p2;
         triangles_encoded[i].p3 = t.p3;
         // 顶点法线
-        triangles_encoded[i].n1 = t.n1;
-        triangles_encoded[i].n2 = t.n2;
-        triangles_encoded[i].n3 = t.n3;
+        triangles_encoded[i].norm = t.norm;
         // 材质
         triangles_encoded[i].emissive = m_.emissive;
         triangles_encoded[i].brdf = m_.brdf;

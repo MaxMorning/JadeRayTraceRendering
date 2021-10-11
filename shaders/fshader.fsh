@@ -26,7 +26,7 @@ uniform mat4 cameraRotate;
 
 #define PI              3.1415926
 #define INF             114514.0
-#define SIZE_TRIANGLE   8
+#define SIZE_TRIANGLE   6
 #define SIZE_BVHNODE    4
 #define STACK_CAPACITY 128
 #define RR_RATE 0.8
@@ -36,7 +36,7 @@ uniform mat4 cameraRotate;
 // Triangle 数据格式
 struct Triangle {
     vec3 p1, p2, p3;    // 顶点坐标
-    vec3 n1, n2, n3;    // 顶点法线
+    vec3 norm;    // 顶点法线
 };
 
 // BVH 树节点
@@ -159,9 +159,7 @@ Triangle getTriangle(int i) {
     t.p2 = texelFetch(triangles, offset + 1).xyz;
     t.p3 = texelFetch(triangles, offset + 2).xyz;
     // 法线
-    t.n1 = texelFetch(triangles, offset + 3).xyz;
-    t.n2 = texelFetch(triangles, offset + 4).xyz;
-    t.n3 = texelFetch(triangles, offset + 5).xyz;
+    t.norm = texelFetch(triangles, offset + 3).xyz;
 
     return t;
 }
@@ -171,8 +169,8 @@ Material getMaterial(int i) {
     Material m;
 
     int offset = i * SIZE_TRIANGLE;
-    m.emissive = texelFetch(triangles, offset + 6).xyz;
-    m.brdf = texelFetch(triangles, offset + 7).xyz;
+    m.emissive = texelFetch(triangles, offset + 4).xyz;
+    m.brdf = texelFetch(triangles, offset + 5).xyz;
 
     return m;
 }
@@ -200,6 +198,7 @@ BVHNode getBVHNode(int i) {
 // ----------------------------------------------------------------------------- //
 
 // 光线和三角形求交
+/*
 HitResult hitTriangle_(Triangle triangle, Ray ray, int index) {
     HitResult res;
     res.distance = INF;
@@ -257,6 +256,7 @@ HitResult hitTriangle_(Triangle triangle, Ray ray, int index) {
 
     return res;
 }
+*/
 
 float mixed_product(vec3 vec_a, vec3 vec_b, vec3 vec_c)
 {
