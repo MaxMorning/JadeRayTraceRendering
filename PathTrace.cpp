@@ -347,7 +347,7 @@ mat4 getTransformMatrix(vec3 rotateCtrl, vec3 translateCtrl, vec3 scaleCtrl) {
 }
 
 // 读取 obj
-void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Material material, mat4 trans, bool smoothNormal) {
+void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Material material, mat4 trans, bool normal_transform) {
 
     // 顶点位置，索引
     std::vector<vec3> vertices;
@@ -403,17 +403,20 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
     }
 
     // 模型大小归一化
-    float lenx = maxx - minx;
-    float leny = maxy - miny;
-    float lenz = maxz - minz;
-    float maxaxis = max(lenx, max(leny, lenz));
-    vec3 center = vec3((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
-    for (auto& v : vertices) {
-        v -= center;
-        v.x /= maxaxis;
-        v.y /= maxaxis;
-        v.z /= maxaxis;
+    if (normal_transform) {
+        float lenx = maxx - minx;
+        float leny = maxy - miny;
+        float lenz = maxz - minz;
+        float maxaxis = max(lenx, max(leny, lenz));
+        vec3 center = vec3((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
+        for (auto& v : vertices) {
+            v -= center;
+            v.x /= maxaxis;
+            v.y /= maxaxis;
+            v.z /= maxaxis;
+        }
     }
+
 
     // 通过矩阵进行坐标变换
     for (auto& v : vertices) {
@@ -783,7 +786,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             }
                 break;
 
-            case GLFW_KEY_T:
+            case GLFW_KEY_R:
             {
                 std::cout << "SAVE" << std::endl;
                 unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
@@ -837,16 +840,23 @@ int main()
 //
 //    m.brdf = vec3(1, 1, 1);
 //    m.emissive = vec3(60, 60, 60);
-//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), false);
+//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0.0, 2, 0), vec3(1, 1, 1)), true);
 
     // Cornell Box
     r = 8;
+    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
     m.brdf = vec3(0.72, 0.72, 0.72);
-    readObj("cornell.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(5.592, 5.592, 5.592)),true);
+    readObj("cornell.obj", triangles, m, trans_mat, false);
 
-    m.brdf = vec3(1, 1, 1);
-    m.emissive = vec3(60, 60, 60);
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 0), vec3(0, 5.488, 0), vec3(1.30, 1.30, 1.30)), false);
+    m.brdf = vec3(0.72, 0, 0);
+    readObj("cornell_left.obj", triangles, m, trans_mat, false);
+
+    m.brdf = vec3(0, 0.72, 0);
+    readObj("cornell_right.obj", triangles, m, trans_mat, false);
+
+    m.brdf = vec3(0.78, 0.78, 0.78);
+    m.emissive = vec3(40, 40, 40);
+    readObj("light.obj", triangles, m, trans_mat, false);
 
     size_t nTriangles = triangles.size();
 

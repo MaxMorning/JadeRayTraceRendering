@@ -548,14 +548,13 @@ vec3 pathTracing(HitResult hit) {
             vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
             if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
                 ray_direction *= -1;
-                cosine_theta *= -1;
             }
 
             Ray new_ray;
             new_ray.startPoint = ray_src;
             new_ray.direction = ray_direction;
             HitResult new_hit = hitBVH(new_ray, obj_hit.index);
-            if (new_hit.isHit && !(new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
+            if (new_hit.isHit && (new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
                 // Hit something
                 ray_direction *= -1;
                 indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit.normal)) / RR_RATE;
@@ -602,8 +601,8 @@ void main() {
         color = sampleHdr(ray.direction);
     } else {
         vec3 Le = firstHit.material.emissive;
-        // vec3 Li = pathTracing(firstHit);
-        vec3 Li = pathTracing_(firstHit, 2);
+        vec3 Li = pathTracing(firstHit);
+        // vec3 Li = pathTracing_(firstHit, 2);
         color = Le + Li;
     }
 
