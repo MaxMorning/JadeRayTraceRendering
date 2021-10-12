@@ -253,7 +253,7 @@ std::string readShaderFile(std::string filepath) {
     std::ifstream fin(filepath);
     if (!fin.is_open())
     {
-        std::cout << "文件 " << filepath << " 打开失败" << std::endl;
+        std::cout << "File  " << filepath << " open failed" << std::endl;
         exit(-1);
     }
     while (std::getline(fin, line))
@@ -296,7 +296,7 @@ GLuint getShaderProgram(std::string fshader, std::string vshader) {
     if (!success)
     {
         glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cout << "顶点着色器编译错误\n" << infoLog << std::endl;
+        std::cout << "Vertex Shader compile error.\n" << infoLog << std::endl;
         exit(-1);
     }
 
@@ -308,7 +308,7 @@ GLuint getShaderProgram(std::string fshader, std::string vshader) {
     if (!success)
     {
         glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cout << "片段着色器编译错误\n" << infoLog << std::endl;
+        std::cout << "Fragment shader compile error.\n" << infoLog << std::endl;
         exit(-1);
     }
 
@@ -357,7 +357,7 @@ void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Mate
     std::ifstream fin(filepath);
     std::string line;
     if (!fin.is_open()) {
-        std::cout << "文件 " << filepath << " 打开失败" << std::endl;
+        std::cout << "File " << filepath << " open failed." << std::endl;
         exit(-1);
     }
 
@@ -654,7 +654,7 @@ void display(GLFWwindow* window) {
     t2 = clock();
     dt = (double)(t2 - t1) / CLOCKS_PER_SEC;
     fps = 1.0 / dt;
-    std::cout << std::fixed << std::setprecision(2) << "FPS : " << fps << "    迭代次数: " << frameCounter << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "FPS : " << fps << "    Iter time: " << frameCounter << std::endl;
     t1 = t2;
 
     // 相机参数
@@ -860,7 +860,7 @@ int main()
 
     size_t nTriangles = triangles.size();
 
-    std::cout << "模型读取完成: 共 " << nTriangles << " 个三角形" << std::endl;
+    std::cout << "Model load done:  " << nTriangles << " Triangles." << std::endl;
 
     // 建立 bvh
     BVHNode testNode;
@@ -873,7 +873,7 @@ int main()
     //buildBVH(triangles, nodes, 0, triangles.size() - 1, 8);
     buildBVHwithSAH(triangles, nodes, 0, triangles.size() - 1, 8);
     int nNodes = nodes.size();
-    std::cout << "BVH 建立完成: 共 " << nNodes << " 个节点" << std::endl;
+    std::cout << "BVH Build done: " << nNodes << " nodes." << std::endl;
 
     // 编码 三角形, 材质
     std::vector<Triangle_encoded> triangles_encoded(nTriangles);
@@ -959,8 +959,8 @@ int main()
     pass1.program = getShaderProgram("./shaders/fshader.fsh", "./shaders/vshader.vsh");
     //pass1.width = pass1.height = 256;
     pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
-    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
-    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
+//    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
+//    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
     pass1.bindData();
 
     glUseProgram(pass1.program);
@@ -982,7 +982,7 @@ int main()
 
     // ----------------------------------------------------------------------------- //
 
-    std::cout << "开始..." << std::endl << std::endl;
+    std::cout << "Start..." << std::endl << std::endl;
 
     glEnable(GL_DEPTH_TEST);  // 开启深度测试
     glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑

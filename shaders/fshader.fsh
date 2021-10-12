@@ -96,40 +96,6 @@ float rand() {
     return float(wang_hash(seed)) / 4294967296.0;
 }
 
-// ----------------------------------------------------------------------------- //
-
-// 半球均匀采样
-vec3 SampleHemisphere() {
-    float z = rand();
-    float r = max(0, sqrt(1.0 - z*z));
-    float phi = 2.0 * PI * rand();
-    return vec3(r * cos(phi), r * sin(phi), z);
-}
-
-/*
-vec3 toNormalHemisphere(vec3 v, vec3 N) {
-    vec3 tangent = vec3(0);
-    if(N.yz==vec2(0)) tangent = vec3(0, 0, -N.x);
-    else if(N.xz==vec2(0)) tangent = vec3(0, 0, N.y);
-    else if(N.xy==vec2(0)) tangent = vec3(-N.z, 0, 0);
-    else if(abs(N.x)>abs(N.y)) tangent = normalize(vec3(0, N.z, -N.y));
-    else tangent = normalize(vec3(-N.z, 0, N.x));
-    vec3 bitangent = cross(N, tangent);
-    return normalize(v.x * tangent + v.y * bitangent + v.z * N);
-}
-*/
-
-// 将向量 v 投影到 N 的法向半球
-vec3 toNormalHemisphere(vec3 v, vec3 N) {
-    vec3 helper = vec3(1, 0, 0);
-    if(abs(N.x)>0.999) helper = vec3(0, 0, 1);
-    vec3 tangent = normalize(cross(N, helper));
-    vec3 bitangent = normalize(cross(N, tangent));
-    return v.x * tangent + v.y * bitangent + v.z * N;
-}
-
-// ----------------------------------------------------------------------------- //
-
 // 将三维向量 v 转为 HDR map 的纹理坐标 uv
 vec2 SampleSphericalMap(vec3 v) {
     vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
@@ -198,66 +164,6 @@ BVHNode getBVHNode(int i) {
 // ----------------------------------------------------------------------------- //
 
 // 光线和三角形求交
-/*
-HitResult hitTriangle_(Triangle triangle, Ray ray, int index) {
-    HitResult res;
-    res.distance = INF;
-    res.isHit = false;
-    // res.isInside = false;
-    bool isInside = false;
-
-    vec3 p1 = triangle.p1;
-    vec3 p2 = triangle.p2;
-    vec3 p3 = triangle.p3;
-
-    vec3 S = ray.startPoint;    // 射线起点
-    vec3 d = ray.direction;     // 射线方向
-    vec3 N = normalize(cross(p2-p1, p3-p1));    // 法向量
-
-    // 从三角形背后（模型内部）击中
-    if (dot(N, d) > 0.0f) {
-        N = -N;
-        isInside = true;
-    }
-
-    // 如果视线和三角形平行
-    if (abs(dot(N, d)) < 0.00001f) return res;
-
-    // 距离
-    float t = (dot(N, p1) - dot(S, N)) / dot(d, N);
-    if (t < 0.0005f) return res;    // 如果三角形在光线背面
-
-    // 交点计算
-    vec3 P = S + d * t;
-
-    // 判断交点是否在三角形中
-    vec3 c1 = cross(p2 - p1, P - p1);
-    vec3 c2 = cross(p3 - p2, P - p2);
-    vec3 c3 = cross(p1 - p3, P - p3);
-    bool r1 = (dot(c1, N) > 0 && dot(c2, N) > 0 && dot(c3, N) > 0);
-    bool r2 = (dot(c1, N) < 0 && dot(c2, N) < 0 && dot(c3, N) < 0);
-
-    // 命中，封装返回结果
-    if (r1 || r2) {
-        res.isHit = true;
-        res.hitPoint = P;
-        res.distance = t;
-        res.normal = N;
-        res.viewDir = d;
-        // 根据交点位置插值顶点法线
-        float alpha = (-(P.x-p2.x)*(p3.y-p2.y) + (P.y-p2.y)*(p3.x-p2.x)) / (-(p1.x-p2.x-0.00005)*(p3.y-p2.y+0.00005) + (p1.y-p2.y+0.00005)*(p3.x-p2.x+0.00005));
-        float beta  = (-(P.x-p3.x)*(p1.y-p3.y) + (P.y-p3.y)*(p1.x-p3.x)) / (-(p2.x-p3.x-0.00005)*(p1.y-p3.y+0.00005) + (p2.y-p3.y+0.00005)*(p1.x-p3.x+0.00005));
-        float gama  = 1.0 - alpha - beta;
-        vec3 Nsmooth = alpha * triangle.n1 + beta * triangle.n2 + gama * triangle.n3;
-        Nsmooth = normalize(Nsmooth);
-        res.normal = (isInside) ? (-Nsmooth) : (Nsmooth);
-        res.index = index;
-    }
-
-    return res;
-}
-*/
-
 float mixed_product(vec3 vec_a, vec3 vec_b, vec3 vec_c)
 {
     return vec_a.x * (vec_b.y * vec_c.z - vec_b.z * vec_c.y) + 
@@ -301,9 +207,7 @@ HitResult hitTriangle(Triangle triangle, Ray ray, int index) {
         vec_pa = triangle.p1 + rate_a * vec_pb + rate_b * vec_pc;
 
         float distance = dot(vec_pa - src_point, normal_direction);
-        // printf("Rate : %f %f %f\n", rate_a, rate_b, distance / norm3df(vec_pa.x - src_point.x, vec_pa.y - src_point.y, vec_pa.z - src_point.z));
         if (distance > 0) {
-            // printf("In Center : %f, %f, %f %f\n", papb, pbpc, pcpa, distance);
             // ray will hit object
             // package result
             res.isHit = true;
@@ -342,7 +246,7 @@ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
     res.isHit = false;
     res.distance = INF;
     int min_i = l;
-    for(int i=l; i<=r; i++) {
+    for(int i = l; i <= r; i++) {
         if (i == src_object_idx) {
             continue;
         }
@@ -351,7 +255,6 @@ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
         if(new_hit.isHit && new_hit.distance < res.distance) {
             res = new_hit;
             min_i = i;
-            // res.material = getMaterial(i);
         }
     }
     res.material = getMaterial(min_i);
@@ -368,13 +271,15 @@ HitResult hitBVH(Ray ray, int src_object_idx) {
     int stack[256];
     int sp = 0;
 
-    stack[sp++] = 1;
-    while(sp>0) {
-        int top = stack[--sp];
+    stack[sp] = 1;
+    sp++;
+    while(sp > 0) {
+        --sp;
+        int top = stack[sp];
         BVHNode node = getBVHNode(top);
 
         // 是叶子节点，遍历三角形，求最近交点
-        if(node.n>0) {
+        if(node.n > 0) {
             int L = node.index;
             int R = node.index + node.n - 1;
             HitResult r = hitArray(ray, L, R, src_object_idx);
@@ -385,28 +290,36 @@ HitResult hitBVH(Ray ray, int src_object_idx) {
         // 和左右盒子 AABB 求交
         float d1 = INF; // 左盒子距离
         float d2 = INF; // 右盒子距离
-        if(node.left>0) {
+        if(node.left > 0) {
             BVHNode leftNode = getBVHNode(node.left);
             d1 = hitAABB(ray, leftNode.AA, leftNode.BB);
         }
-        if(node.right>0) {
+        if(node.right > 0) {
             BVHNode rightNode = getBVHNode(node.right);
             d2 = hitAABB(ray, rightNode.AA, rightNode.BB);
         }
 
         // 在最近的盒子中搜索
-        if(d1>0 && d2>0) {
-            if(d1<d2) { // d1<d2, 左边先
-                stack[sp++] = node.right;
-                stack[sp++] = node.left;
-            } else {    // d2<d1, 右边先
-                stack[sp++] = node.left;
-                stack[sp++] = node.right;
+        if(d1 > 0 && d2 > 0) {
+            if(d1<d2) { // d1 < d2, 左边先
+                stack[sp] = node.right;
+                sp++;
+
+                stack[sp] = node.left;
+                sp++;
+            } else {    // d2 < d1, 右边先
+                stack[sp] = node.left;
+                sp++;
+
+                stack[sp] = node.right;
+                sp++;
             }
-        } else if(d1>0) {   // 仅命中左边
-            stack[sp++] = node.left;
-        } else if(d2>0) {   // 仅命中右边
-            stack[sp++] = node.right;
+        } else if(d1 > 0) {   // 仅命中左边
+            stack[sp] = node.left;
+            sp++;
+        } else if(d2 > 0) {   // 仅命中右边
+            stack[sp] = node.right;
+            sp++;
         }
     }
 
@@ -421,7 +334,7 @@ vec3 pathTracing_(HitResult hit, int maxBounce) {
     vec3 Lo = vec3(0);      // 最终的颜色
     vec3 history = vec3(1); // 递归积累的颜色
 
-    for(int bounce=0; bounce<maxBounce; bounce++) {
+    for(int bounce = 0; bounce < maxBounce; bounce++) {
         // 随机出射方向 wi
         float cosine_theta = 2 * (rand() - 0.5);
         float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
@@ -506,7 +419,6 @@ vec3 pathTracing(HitResult hit) {
                 float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
                 l_dir += hit_result.material.emissive * obj_hit_fr * abs(dot(obj_hit.normal, obj_light_direction) * dot(hit_result.normal, obj_light_direction)) 
                             / direction_length_square / direction_length_square * size(t_i);
-                // l_dir = vec3(0.5);
             }
         }
 
@@ -526,17 +438,10 @@ vec3 pathTracing(HitResult hit) {
         new_ray.startPoint = ray_src;
         new_ray.direction = ray_direction;
         HitResult hit_result = hitBVH(new_ray, obj_hit.index);
-        // if (hit_result.index == obj_hit.index) {
         if (!hit_result.isHit) {
             vec3 skyColor = sampleHdr(ray_direction);
             l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit.normal, ray_direction)) * 2 * PI;
-            // l_dir = vec3(1);
         }
-        // else {
-        //     l_dir = vec3(0);
-        // }
-
-        // return l_dir;
 
         float rr_result = rand();
         if (rr_result < RR_RATE) {
@@ -588,7 +493,7 @@ void main() {
     Ray ray;
 
     ray.startPoint = eye;
-    vec2 AA = vec2((rand()-0.5)/float(width), (rand()-0.5)/float(height));
+    vec2 AA = vec2((rand() - 0.5) / float(width), (rand() - 0.5) / float(height));
     vec4 dir = cameraRotate * vec4(pix.xy + AA, -1.5, 0.0);
     ray.direction = normalize(dir.xyz);
 
@@ -608,7 +513,7 @@ void main() {
 
     // 和上一帧混合
     vec3 lastColor = texture(lastFrame, pix.xy * 0.5 + 0.5).rgb;
-    color = mix(lastColor, color, 1.0/float(frameCounter + uint(1)));
+    color = mix(lastColor, color, 1.0 / float(frameCounter + uint(1)));
 
     // 输出
     fragColor = vec4(color, 1.0);
