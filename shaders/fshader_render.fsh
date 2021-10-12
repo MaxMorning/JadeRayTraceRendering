@@ -330,51 +330,6 @@ HitResult hitBVH(Ray ray, int src_object_idx) {
 // ----------------------------------------------------------------------------- //
 
 // 路径追踪
-vec3 pathTracing_(HitResult hit, int maxBounce) {
-
-    vec3 Lo = vec3(0);      // 最终的颜色
-    vec3 history = vec3(1); // 递归积累的颜色
-
-    for(int bounce = 0; bounce < maxBounce; bounce++) {
-        // 随机出射方向 wi
-        float cosine_theta = 2 * (rand() - 0.5);
-        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
-        float fai_value = 2 * PI * rand();
-        vec3 wi = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-        if (dot(wi, hit.normal) * dot(hit.viewDir, hit.normal) > 0) {
-            wi *= -1;
-        }
-
-        // 漫反射: 随机发射光线
-        Ray randomRay;
-        randomRay.startPoint = hit.hitPoint;
-        randomRay.direction = wi;
-        HitResult newHit = hitBVH(randomRay, hit.index);
-
-        float pdf = 1.0 / (2.0 * PI);                                   // 半球均匀采样概率密度
-        // float cosine_o = abs(dot(-hit.viewDir, hit.normal));         // 入射光和法线夹角余弦
-        float cosine_i = abs(dot(randomRay.direction, hit.normal));  // 出射光和法线夹角余弦
-        vec3 f_r = hit.material.brdf / PI;                         // 漫反射 BRDF
-
-        // 未命中
-        if(!newHit.isHit) {
-            vec3 skyColor = sampleHdr(randomRay.direction);
-            Lo += history * skyColor * f_r * cosine_i / pdf;
-            break;
-        }
-
-        // 命中光源积累颜色
-        vec3 Le = newHit.material.emissive;
-        Lo += history * Le * f_r * cosine_i / pdf;
-
-        // 递归(步进)
-        hit = newHit;
-        history *= f_r * cosine_i / pdf;  // 累积颜色
-    }
-
-    return Lo;
-}
-
 float size(Triangle triangle)
 {
     vec3 v_1 = triangle.p2 - triangle.p1;
@@ -464,7 +419,7 @@ vec3 pathTracing(HitResult hit) {
             new_ray.startPoint = ray_src;
             new_ray.direction = ray_direction;
             HitResult new_hit = hitBVH(new_ray, obj_hit.index);
-            if (new_hit.isHit && (new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
+            if (new_hit.isHit && (new_hit.material.emissive.x < 1.5e-4 && new_hit.material.emissive.y < 1.5e-4 && new_hit.material.emissive.z < 1.5e-4)) {
                 // Hit something
                 ray_direction *= -1;
                 indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit.normal)) / RR_RATE;
@@ -520,7 +475,7 @@ void main() {
         final_result += color;
     }
 
-    final_result /= spp;
+    final_result /= float(spp);
     fragColor = vec4(final_result, 1.0);
 }
 
