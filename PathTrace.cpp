@@ -861,16 +861,24 @@ void offline_render(int spp, GLFWwindow* window)
     display(window, false);
 
     // save
+    std::cout << "BEGIN SAVE" << std::endl;
     unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
+    std::cout << "ALLOCATE" << std::endl;
+    glPixelStorei(GL_UNPACK_ALIGNMENT,1);
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
+    std::cout << "READ PIXELS" << std::endl;
+    check_error(0);
     save_image(image, WIDTH, HEIGHT);
+    std::cout << "STORE" << std::endl;
     delete[] image;
     std::cout << "RENDER DONE" << std::endl;
 
-    frameCounter = spp;
+    frameCounter = 0;
     // switch to preview shader
-    // no need to clear frame counter
     set_shader("./shaders/fshader_preview.fsh", -1);
+    glEnable(GL_DEPTH_TEST);  // 开启深度测试
+    glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑
+    display(window, true);
 }
 
 int main()
@@ -901,28 +909,28 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.8, 0.8, 0.8);
-    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
-
-    m.brdf = vec3(1, 1, 1);
-    m.emissive = vec3(20, 100, 0);
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
+//    m.brdf = vec3(0.8, 0.8, 0.8);
+//    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
+//
+//    m.brdf = vec3(1, 1, 1);
+//    m.emissive = vec3(20, 100, 0);
+//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
 
     // Cornell Box
-//    r = 8;
-//    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
-//    m.brdf = vec3(0.72, 0.72, 0.72);
-//    readObj("cornell.obj", triangles, m, trans_mat, false);
-//
-//    m.brdf = vec3(0.72, 0, 0);
-//    readObj("cornell_left.obj", triangles, m, trans_mat, false);
-//
-//    m.brdf = vec3(0, 0.72, 0);
-//    readObj("cornell_right.obj", triangles, m, trans_mat, false);
-//
-//    m.brdf = vec3(0.78, 0.78, 0.78);
-//    m.emissive = vec3(40, 40, 40);
-//    readObj("light.obj", triangles, m, trans_mat, false);
+    r = 8;
+    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
+    m.brdf = vec3(0.72, 0.72, 0.72);
+    readObj("cornell.obj", triangles, m, trans_mat, false);
+
+    m.brdf = vec3(0.72, 0, 0);
+    readObj("cornell_left.obj", triangles, m, trans_mat, false);
+
+    m.brdf = vec3(0, 0.72, 0);
+    readObj("cornell_right.obj", triangles, m, trans_mat, false);
+
+    m.brdf = vec3(0.78, 0.78, 0.78);
+    m.emissive = vec3(40, 40, 40);
+    readObj("light.obj", triangles, m, trans_mat, false);
 
     size_t nTriangles = triangles.size();
 

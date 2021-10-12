@@ -29,7 +29,7 @@ uniform mat4 cameraRotate;
 #define INF             114514.0
 #define SIZE_TRIANGLE   6
 #define SIZE_BVHNODE    4
-#define STACK_CAPACITY 128
+#define STACK_CAPACITY 16
 #define RR_RATE 0.8
 
 // ----------------------------------------------------------------------------- //
@@ -386,7 +386,7 @@ vec3 pathTracing(HitResult hit) {
         // sample from HDR
         // random select a point on HDR Texture
         float cosine_theta = 2 * (rand() - 0.5);
-        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+        float sine_theta = sqrt(max(0, 1 - cosine_theta * cosine_theta));
         float fai_value = 2 * PI * rand();
         vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
         if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
@@ -426,10 +426,16 @@ vec3 pathTracing(HitResult hit) {
                 ray_src = new_hit.hitPoint;
                 out_direction = ray_direction;
 
+                // if (stack_offset >= STACK_CAPACITY) {
+                //     return vec3(1);
+                // }
                 stack_dir[stack_offset] = l_dir;
                 stack_indir_rate[stack_offset] = indir_rate;
                 ++stack_offset;
                 obj_hit = new_hit;
+            }
+            else {
+                break;
             }
         }
         else {
