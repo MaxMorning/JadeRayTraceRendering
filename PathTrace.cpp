@@ -648,7 +648,7 @@ clock_t t1, t2;
 double dt, fps;
 unsigned int frameCounter = 0;
 vec3 eye_center = vec3(0);
-void display(GLFWwindow* window) {
+void display(GLFWwindow* window, bool swap_buffer) {
 
     // 帧计时
     t2 = clock();
@@ -693,7 +693,9 @@ void display(GLFWwindow* window) {
     pass2.draw(pass1.colorAttachments);
     pass3.draw(pass2.colorAttachments);
 
-    glfwSwapBuffers(window);
+    if (swap_buffer) {
+        glfwSwapBuffers(window);
+    }
 }
 
 // 每一帧
@@ -774,6 +776,8 @@ void move_camera(GLFWwindow* window) {
         r += WASD_DELTA * deltaTime;
     }
 }
+void offline_render(int spp, GLFWwindow* window);
+
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
     //如果按下ESC，把windowShouldClose设置为True，外面的循环会关闭应用
@@ -786,7 +790,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             }
                 break;
 
-            case GLFW_KEY_R:
+            case GLFW_KEY_C:
             {
                 std::cout << "SAVE" << std::endl;
                 unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
@@ -796,6 +800,14 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             }
                 break;
 
+            case GLFW_KEY_R:
+            {
+                int spp;
+                std::cout << "Sample per Pixel : " << std::endl;
+                std::cin >> spp;
+                offline_render(spp, window);
+            }
+            break;
             default:
                 key_status[key] = true;
         }
@@ -803,6 +815,62 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     else if (action == GLFW_RELEASE) {
         key_status[key] = false;
     }
+}
+
+std::vector<Triangle> triangles;
+std::vector<BVHNode> nodes;
+int nEmitTriangles = 0;
+
+void set_shader(std::string fshader_path, int spp)
+{
+    pass1.program = getShaderProgram(fshader_path, "./shaders/vshader.vsh");
+    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
+    pass1.bindData();
+
+    glUseProgram(pass1.program);
+    glUniform1i(glGetUniformLocation(pass1.program, "nTriangles"), triangles.size());
+    glUniform1i(glGetUniformLocation(pass1.program, "nNodes"), nodes.size());
+    glUniform1i(glGetUniformLocation(pass1.program, "width"), pass1.width);
+    glUniform1i(glGetUniformLocation(pass1.program, "height"), pass1.height);
+    glUniform1i(glGetUniformLocation(pass1.program, "nEmitTriangles"), nEmitTriangles);
+    if (spp > 0) {
+        glUniform1i(glGetUniformLocation(pass1.program, "spp"), spp);
+    }
+    glUseProgram(0);
+
+    pass2.program = getShaderProgram("./shaders/pass2.fsh", "./shaders/vshader.vsh");
+    lastFrame = getTextureRGB32F(pass2.width, pass2.height);
+    pass2.colorAttachments.push_back(lastFrame);
+    pass2.bindData();
+
+    pass3.program = getShaderProgram("./shaders/pass3.fsh", "./shaders/vshader.vsh");
+    pass3.bindData(true);
+}
+// offline render
+void offline_render(int spp, GLFWwindow* window)
+{
+    // pipeline settings
+    set_shader("./shaders/fshader_render.fsh", spp);
+
+    // start render
+    std::cout << "Start Rendering..." << std::endl << std::endl;
+
+    glEnable(GL_DEPTH_TEST);  // 开启深度测试
+    glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑
+    frameCounter = 0;
+    display(window, false);
+
+    // save
+    std::cout << "RENDER DONE" << std::endl;
+    unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
+    glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
+    save_image(image, WIDTH, HEIGHT);
+    delete[] image;
+
+    frameCounter = spp;
+    // switch to preview shader
+    // no need to clear frame counter
+    set_shader("./shaders/fshader_preview.fsh", -1);
 }
 
 int main()
@@ -831,8 +899,6 @@ int main()
 
     const GLubyte* version_string = glGetString(GL_VERSION);
     printf("GL Version : %s\n", version_string);
-
-    std::vector<Triangle> triangles;
 
     Material m;
 //    m.brdf = vec3(0, 1, 1);
@@ -869,7 +935,7 @@ int main()
     testNode.n = 30;
     testNode.AA = vec3(1, 1, 0);
     testNode.BB = vec3(0, 1, 0);
-    std::vector<BVHNode> nodes{ testNode };
+    nodes.push_back(testNode);
     //buildBVH(triangles, nodes, 0, triangles.size() - 1, 8);
     buildBVHwithSAH(triangles, nodes, 0, triangles.size() - 1, 8);
     int nNodes = nodes.size();
@@ -878,7 +944,6 @@ int main()
     // 编码 三角形, 材质
     std::vector<Triangle_encoded> triangles_encoded(nTriangles);
     std::vector<int> emit_triangles_indices;
-    int nEmitTriangles = 0;
     for (int i = 0; i < nTriangles; i++) {
         Triangle& t = triangles[i];
         Material& m_ = t.material;
@@ -956,29 +1021,7 @@ int main()
 
     // 管线配置
 
-    pass1.program = getShaderProgram("./shaders/fshader.fsh", "./shaders/vshader.vsh");
-    //pass1.width = pass1.height = 256;
-    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
-//    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
-//    pass1.colorAttachments.push_back(getTextureRGB32F(pass1.width, pass1.height));
-    pass1.bindData();
-
-    glUseProgram(pass1.program);
-    glUniform1i(glGetUniformLocation(pass1.program, "nTriangles"), triangles.size());
-    glUniform1i(glGetUniformLocation(pass1.program, "nNodes"), nodes.size());
-    glUniform1i(glGetUniformLocation(pass1.program, "width"), pass1.width);
-    glUniform1i(glGetUniformLocation(pass1.program, "height"), pass1.height);
-    glUniform1i(glGetUniformLocation(pass1.program, "nEmitTriangles"), nEmitTriangles);
-    glUseProgram(0);
-
-    pass2.program = getShaderProgram("./shaders/pass2.fsh", "./shaders/vshader.vsh");
-    lastFrame = getTextureRGB32F(pass2.width, pass2.height);
-    pass2.colorAttachments.push_back(lastFrame);
-    pass2.bindData();
-
-    pass3.program = getShaderProgram("./shaders/pass3.fsh", "./shaders/vshader.vsh");
-    pass3.bindData(true);
-
+    set_shader("./shaders/fshader_preview.fsh", -1);
 
     // ----------------------------------------------------------------------------- //
 
@@ -994,7 +1037,7 @@ int main()
         glfwPollEvents();
 
         move_camera(window);
-        display(window);
+        display(window, true);
     }
     glfwTerminate();
     return 0;

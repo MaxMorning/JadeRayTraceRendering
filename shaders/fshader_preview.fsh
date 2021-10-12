@@ -373,118 +373,6 @@ vec3 pathTracing_(HitResult hit, int maxBounce) {
 
     return Lo;
 }
-
-float size(Triangle triangle)
-{
-    vec3 v_1 = triangle.p2 - triangle.p1;
-    vec3 v_2 = triangle.p3 - triangle.p1;
-    vec3 cross_product = vec3(v_1.y * v_2.z - v_1.z * v_2.y, v_1.z * v_2.x - v_1.x * v_2.z, v_1.x * v_2.y - v_1.y * v_2.x);
-    return 0.5 * sqrt(dot(cross_product, cross_product));
-}
-
-vec3 pathTracing(HitResult hit) {
-    vec3 l_dir = vec3(0);
-    int stack_offset = 0;
-    vec3 stack_dir[STACK_CAPACITY];
-    vec3 stack_indir_rate[STACK_CAPACITY];
-    vec3 out_direction = -hit.viewDir;
-    vec3 ray_src = hit.hitPoint;
-    HitResult obj_hit = hit;
-    while (stack_offset < STACK_CAPACITY) {
-        // direct light
-        // sample from emit triangles
-        l_dir = vec3(0);
-        vec3 obj_hit_fr = obj_hit.material.brdf / PI;
-        for (int i = 0; i < nEmitTriangles; ++i) {
-            // random select a point on light triangle
-            float rand_x = rand();
-            float rand_y = rand();
-            if (rand_x + rand_y > 1) {
-                rand_x = 1 - rand_x;
-                rand_y = 1 - rand_y;
-            }
-
-            int emit_tri_idx = texelFetch(emitTrianglesIndices, i).x;
-            Triangle t_i = getTriangle(emit_tri_idx);
-            vec3 random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
-
-            // test block
-            vec3 obj_light_direction = random_point - ray_src;
-            Ray new_ray;
-            new_ray.startPoint = ray_src;
-            new_ray.direction = obj_light_direction;
-            HitResult hit_result = hitBVH(new_ray, obj_hit.index);
-
-            if (hit_result.isHit && hit_result.index == emit_tri_idx) {
-                float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
-                l_dir += hit_result.material.emissive * obj_hit_fr * abs(dot(obj_hit.normal, obj_light_direction) * dot(hit_result.normal, obj_light_direction)) 
-                            / direction_length_square / direction_length_square * size(t_i);
-            }
-        }
-
-
-        // sample from HDR
-        // random select a point on HDR Texture
-        float cosine_theta = 2 * (rand() - 0.5);
-        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
-        float fai_value = 2 * PI * rand();
-        vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-        if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
-            ray_direction *= -1;
-        }
-
-        // test block
-        Ray new_ray;
-        new_ray.startPoint = ray_src;
-        new_ray.direction = ray_direction;
-        HitResult hit_result = hitBVH(new_ray, obj_hit.index);
-        if (!hit_result.isHit) {
-            vec3 skyColor = sampleHdr(ray_direction);
-            l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit.normal, ray_direction)) * 2 * PI;
-        }
-
-        float rr_result = rand();
-        if (rr_result < RR_RATE) {
-            vec3 indir_rate = vec3(0);
-            // random select a ray from src_point
-            float cosine_theta = 2 * (rand() - 0.5);
-            float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
-            float fai_value = 2 * PI * rand();
-            vec3 ray_direction = vec3(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-            if (dot(ray_direction, obj_hit.normal) * dot(out_direction, obj_hit.normal) < 0) {
-                ray_direction *= -1;
-            }
-
-            Ray new_ray;
-            new_ray.startPoint = ray_src;
-            new_ray.direction = ray_direction;
-            HitResult new_hit = hitBVH(new_ray, obj_hit.index);
-            if (new_hit.isHit && (new_hit.material.emissive.x < 0.01 && new_hit.material.emissive.y < 0.01 && new_hit.material.emissive.z < 0.01)) {
-                // Hit something
-                ray_direction *= -1;
-                indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit.normal)) / RR_RATE;
-                ray_src = new_hit.hitPoint;
-                out_direction = ray_direction;
-
-                stack_dir[stack_offset] = l_dir;
-                stack_indir_rate[stack_offset] = indir_rate;
-                ++stack_offset;
-                obj_hit = new_hit;
-            }
-        }
-        else {
-            break;
-        }
-    }
-
-    // calc final irradiance
-    for (int i = stack_offset - 1; i >= 0; --i) {
-        l_dir *= stack_indir_rate[i];
-        l_dir += stack_dir[i];
-    }
-    
-    return l_dir;
-}
 // ----------------------------------------------------------------------------- //
 
 void main() {
@@ -506,8 +394,7 @@ void main() {
         color = sampleHdr(ray.direction);
     } else {
         vec3 Le = firstHit.material.emissive;
-        vec3 Li = pathTracing(firstHit);
-        // vec3 Li = pathTracing_(firstHit, 2);
+        vec3 Li = pathTracing_(firstHit, 2);
         color = Le + Li;
     }
 
