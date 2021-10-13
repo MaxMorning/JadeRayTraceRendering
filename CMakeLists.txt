@@ -29,7 +29,11 @@ endif()
 link_libraries(${OPENGL} ${GLEW_LINK} ${GLFW_LINK})
 
 # 执行编译命令
-add_executable(JadeRender PathTrace.cpp lib/hdrloader.cpp)
+if (APPLE)
+    add_executable(JadeRender PathTrace.cpp lib/hdrloader.cpp)
+else()
+    add_executable(JadeRender PathTrace.cu lib/hdrloader.cpp)
+endif()
 
 if (APPLE)
     target_link_libraries(JadeRender "-framework OpenGL")
