@@ -347,8 +347,15 @@ mat4 getTransformMatrix(vec3 rotateCtrl, vec3 translateCtrl, vec3 scaleCtrl) {
 }
 
 // 读取 obj
+std::vector<std::string> obj_file_name;
+std::vector<mat4> obj_trans_mats;
+std::vector<Material> obj_materials;
 void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Material material, mat4 trans, bool normal_transform) {
-
+    // 记录
+    obj_file_name.push_back(filepath);
+    obj_trans_mats.push_back(trans);
+    obj_materials.push_back(material);
+    
     // 顶点位置，索引
     std::vector<vec3> vertices;
     std::vector<GLuint> indices;
@@ -846,7 +853,7 @@ void set_shader(std::string fshader_path, int spp)
     pass3.program = getShaderProgram("./shaders/pass3.fsh", "./shaders/vshader.vsh");
     pass3.bindData(true);
 }
-// offline render
+// save args
 void generate_arguments()
 {
     std::ofstream fout("render_args.txt");
@@ -856,6 +863,22 @@ void generate_arguments()
             fout << cameraRotate[row][col] << ' ';
         }
         fout << std::endl;
+    }
+
+    fout << obj_file_name.size() << std::endl;
+
+    for (int i = 0; i < obj_file_name.size(); ++i) {
+        fout << obj_file_name[i] << std::endl;
+
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                fout << obj_trans_mats[i][row][col] << ' ';
+            }
+            fout << std::endl;
+        }
+
+        fout << obj_materials[i].emissive.x << ' ' << obj_materials[i].emissive.y << ' ' << obj_materials[i].emissive.z << std::endl;
+        fout << obj_materials[i].brdf.x << ' ' << obj_materials[i].brdf.y << ' ' << obj_materials[i].brdf.z << std::endl;
     }
 
     fout.close();
