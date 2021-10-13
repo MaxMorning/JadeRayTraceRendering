@@ -13,3 +13,4 @@ cmake-build-release/
 glew32.dll
 *.bmp
 JadeRender
+render_args.txt

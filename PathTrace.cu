@@ -1,4 +1,4 @@
-//
+﻿//
 // Project: JadeRayTraceRendering
 // File Name: PathTrace.cu
 // Author: Morning
@@ -103,34 +103,38 @@ __host__ void save_image(unsigned char* target_img, int width, int height)
 struct vec3_cu {
     float3 data;
 
+    __device__ vec3_cu(const vec3& ori) {
+        data = make_float3(ori.x, ori.y, ori.z);
+    }
+
+    __device__ vec3_cu(const float3& ori) {
+        data = ori;
+    }
+
     __device__ inline vec3_cu operator+(const vec3_cu& opr2) {
-        return vec3_cu{make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z)};
+        return vec3_cu(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
     }
 
     __device__ inline vec3_cu operator-(const vec3_cu& opr2) {
-        return vec3_cu{make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z)};
+        return vec3_cu(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
     }
 
     __device__ inline vec3_cu operator*(const vec3_cu& opr2) {
-        return vec3_cu{make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z)};
+        return vec3_cu(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
     }
 
     __device__ inline vec3_cu operator*(float scalar) {
-        return vec3_cu{make_float3(data.x * scalar, data.y * scalar, data.z * scalar)};
+        return vec3_cu(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
     }
 
     __device__ inline vec3_cu operator/(const vec3_cu& opr2) {
-        return vec3_cu{make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z)};
+        return vec3_cu(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
     }
 
     __device__ inline vec3_cu normalize() {
         float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
-        return vec3_cu{make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev)};
+        return vec3_cu(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
-
-    __device__ static vec3_cu vec3_cu(const vec3& ori) {
-        return vec3_cu{make_float3(ori.x, ori.y, ori.z)};
-    } 
 };
 
 __device__ inline float dot(const vec3_cu& opr1, const vec3_cu& opr2) {
@@ -781,7 +785,7 @@ void move_camera(GLFWwindow* window) {
         r += WASD_DELTA * deltaTime;
     }
 }
-void offline_render(int spp, GLFWwindow* window);
+void generate_arguments(int spp, GLFWwindow* window);
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
@@ -852,7 +856,7 @@ void set_shader(std::string fshader_path, int spp)
     pass3.bindData(true);
 }
 // offline render
-void offline_render(int spp, GLFWwindow* window)
+void generate_arguments(int spp, GLFWwindow* window)
 {
     // pipeline settings
     set_shader("./shaders/fshader_render.fsh", spp);

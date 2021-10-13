@@ -3,6 +3,10 @@ project(JadeRender)
 
 set(CMAKE_CXX_STANDARD 11)
 
+if (APPLE)
+else()
+    find_package(CUDA REQUIRED)
+endif()
 # 添加头文件
 if (APPLE)
     set(GLEW_H /usr/local/Cellar/glew/2.2.0_1/include)
@@ -29,11 +33,7 @@ endif()
 link_libraries(${OPENGL} ${GLEW_LINK} ${GLFW_LINK})
 
 # 执行编译命令
-if (APPLE)
-    add_executable(JadeRender PathTrace.cpp lib/hdrloader.cpp)
-else()
-    add_executable(JadeRender PathTrace.cu lib/hdrloader.cpp)
-endif()
+add_executable(JadeRender PathTrace.cpp lib/hdrloader.cpp)
 
 if (APPLE)
     target_link_libraries(JadeRender "-framework OpenGL")
