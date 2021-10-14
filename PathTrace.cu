@@ -132,11 +132,6 @@ struct vec3_hs {
     __host__ inline vec3_hs operator/(const vec3_hs& opr2) const {
         return vec3_hs(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
     }
-
-    __host__ inline vec3_hs normalize() {
-        float length_rev = 1.0 / sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
-        return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
-    }
 };
 
 __host__ inline float dot(const vec3_hs& opr1, const vec3_hs& opr2) {
@@ -161,7 +156,7 @@ __host__ vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
 }
 
 __host__ inline vec3_hs normalize(const vec3_hs& opr) {
-    float length_rev = 1.0 / norm3df(opr.data.x, opr.data.y, opr.data.z);
+    float length_rev = 1.0 / sqrt(opr.data.x * opr.data.x + opr.data.y * opr.data.y + opr.data.z * opr.data.z);
     return vec3_hs(make_float3(opr.data.x * length_rev, opr.data.y * length_rev, opr.data.z * length_rev));
 }
 
@@ -589,10 +584,6 @@ vector<BVHNode> nodes;
 int nEmitTriangles = 0;
 
 
-// Graphic Memories pointer
-__device__ Triangle_cu* triangles_cu;
-__device__ BVHNode_cu* node_cu;
-__device__ int* emitTrianglesIndices_cu;
 // HDR贴图
 texture<float, 2, cudaReadModeElementType> text_ref_r;
 texture<float, 2, cudaReadModeElementType> text_ref_g;
@@ -721,7 +712,7 @@ __device__ float hitAABB(Ray r, vec3_dv AA, vec3_dv BB) {
 // ----------------------------------------------------------------------------- //
 
 // 暴力遍历数组下标范围 [l, r] 求最近交点
-__device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
+__device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx, Triangle_cu* triangles_cu) {
     HitResult res;
     res.isHit = false;
     res.distance = INF;
@@ -740,7 +731,7 @@ __device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
 }
 
 // 遍历 BVH 求交
-__device__ HitResult hitBVH(Ray ray, int src_object_idx) {
+__device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_cu, BVHNode_cu* node_cu) {
     HitResult res;
     res.isHit = false;
     res.distance = INF;
@@ -760,7 +751,7 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx) {
         if(node.n > 0) {
             int L = node.index;
             int R = node.index + node.n - 1;
-            HitResult r = hitArray(ray, L, R, src_object_idx);
+            HitResult r = hitArray(ray, L, R, src_object_idx, triangles_cu);
             if(r.isHit && r.distance < res.distance) {
                 res = r;
             }
@@ -817,7 +808,7 @@ __device__ float size(Triangle_cu triangle)
     return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
-__device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state) {
+__device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu) {
     vec3_dv l_dir = vec3_dv(0, 0, 0);
     int stack_offset = 0;
     vec3_dv stack_dir[STACK_CAPACITY];
@@ -854,7 +845,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             Ray new_ray;
             new_ray.startPoint = ray_src;
             new_ray.direction = obj_light_direction;
-            HitResult hit_result = hitBVH(new_ray, obj_hit.index);
+            HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
 
             if (hit_result.isHit && hit_result.index == emit_tri_idx) {
                 float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
@@ -878,7 +869,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
         Ray new_ray;
         new_ray.startPoint = ray_src;
         new_ray.direction = ray_direction;
-        HitResult hit_result = hitBVH(new_ray, obj_hit.index);
+        HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
         if (!hit_result.isHit) {
             vec3_dv skyColor = sampleHdr(ray_direction);
             l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI;
@@ -899,7 +890,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             Ray new_ray;
             new_ray.startPoint = ray_src;
             new_ray.direction = ray_direction;
-            HitResult new_hit = hitBVH(new_ray, obj_hit.index);
+            HitResult new_hit = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
             float3 new_hit_emissive = triangles_cu[new_hit.index].emissive.data;
             if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
                 // Hit something
@@ -935,7 +926,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     return l_dir;
 }
 
-__global__ void render_pixel(unsigned char* target_img, curandState* curand_states)
+__global__ void render_pixel(unsigned char* target_img, curandState* curand_states, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu)
 {
     int target_pixel_width = blockIdx.x * TILE_SIZE + threadIdx.x;
     int target_pixel_height = blockIdx.y * TILE_SIZE + threadIdx.y;
@@ -959,7 +950,7 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
         ray.direction = normalize(dir);
 
         // primary hit
-        HitResult firstHit = hitBVH(ray, -1);
+        HitResult firstHit = hitBVH(ray, -1, triangles_cu, node_cu);
         vec3_dv color;
 
         if(!firstHit.isHit) {
@@ -967,7 +958,7 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
             color = sampleHdr(ray.direction);
         } else {
             vec3_dv Le = triangles_cu[firstHit.index].emissive;
-            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x]);
+            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
             color = Le + Li;
         }
 
@@ -988,6 +979,14 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
     target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
     target_img[base_idx + 1] = (unsigned char)(final_result.data.y * 255);
     target_img[base_idx + 2] = (unsigned char)(final_result.data.x * 255);
+}
+
+void check_error(string pass_name) {
+    cudaError_t cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) 
+    {
+        fprintf(stderr, (pass_name + " failed: %s\n").c_str(), cudaGetErrorString(cudaStatus));
+    }
 }
 
 int main()
@@ -1087,6 +1086,10 @@ int main()
 
     // ----------------------------------------------------------------------------- //
     // 传入显存
+    // Graphic Memories pointer
+    Triangle_cu* triangles_cu;
+    BVHNode_cu* node_cu;
+    int* emitTrianglesIndices_cu;
     // 三角形数组
     cudaMalloc(&triangles_cu, nTriangles * sizeof(Triangle_cu));
     cudaMemcpy(triangles_cu, &triangles_encoded[0], nTriangles * sizeof(Triangle_cu), cudaMemcpyHostToDevice);
@@ -1101,7 +1104,7 @@ int main()
     HDRLoaderResult hdrRes;
     HDRLoader::load("background.hdr", hdrRes);
 
-    cudaChannelFormatDesc h_channel_desc = cudaCreateChannelDesc<float3>();
+    cudaChannelFormatDesc h_channel_desc = cudaCreateChannelDesc<float>();
     text_ref_r.addressMode[0] = cudaAddressModeMirror;
     text_ref_r.addressMode[1] = cudaAddressModeMirror;
     text_ref_r.normalized = true;
@@ -1147,17 +1150,20 @@ int main()
     cudaMemcpy(emitTrianglesIndices_cu, &emit_triangles_indices[0], emit_triangles_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
     cout << "Emit triangle indices done." << endl;
 
+    check_error("set scene");
     // 渲染参数设置
     int spp_hs;
     cout << "Sample per Pixel: " << endl;
     cin >> spp_hs;
 
-    cudaMemcpyToSymbol(&nTriangles_dv, &nTriangles, sizeof(int));
-    cudaMemcpyToSymbol(&nEmitTriangles_dv, &nEmitTriangles, sizeof(int));
-    cudaMemcpyToSymbol(&nNodes_dv, &nNodes, sizeof(int));
-    cudaMemcpyToSymbol(&spp, &spp_hs, sizeof(int));
-    cudaMemcpyToSymbol(&eye_dv, &eye_center, sizeof(float3));
-    cudaMemcpyToSymbol(camera_transform_dv, camera_transform, sizeof(float) * 4 * 4);
+    cudaMemcpyToSymbol(nTriangles_dv, &nTriangles, sizeof(int), 0, cudaMemcpyHostToDevice);
+    check_error("copy symbol nTriangle");
+    cudaMemcpyToSymbol(nEmitTriangles_dv, &nEmitTriangles, sizeof(int), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(nNodes_dv, &nNodes, sizeof(int), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(spp, &spp_hs, sizeof(int), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(eye_dv, &eye_center, sizeof(float3), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(camera_transform_dv, camera_transform, sizeof(float) * 4 * 4, 0, cudaMemcpyHostToDevice);
+    check_error("copy symbol");
 // ----------------------------------------------------------------------------- //
 
     cout << "Start..." << endl << endl;
@@ -1168,12 +1174,7 @@ int main()
 
     init_curand <<<1, TILE_SIZE>>> (curand_states, 0);
     cudaDeviceSynchronize();
-
-    cudaError_t cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) 
-    {
-        fprintf(stderr, "curand init launch failed: %s\n", cudaGetErrorString(cudaStatus));
-    }
+    check_error("curand init");
 
     // start render
     dim3 grid{RENDER_WIDTH / TILE_SIZE, RENDER_HEIGHT / TILE_SIZE, 1};
@@ -1182,24 +1183,16 @@ int main()
     unsigned char* d_target_img;
     cudaMalloc(&d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3);
 
-    render_pixel <<<grid, block>>> (d_target_img, curand_states);
+    render_pixel <<<grid, block>>> (d_target_img, curand_states, triangles_cu, node_cu, emitTrianglesIndices_cu);
 
     unsigned char* h_target_img = (unsigned char*)malloc(RENDER_WIDTH * RENDER_HEIGHT * 3);
 
     cudaDeviceSynchronize();
 
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) 
-    {
-        fprintf(stderr, "render launch failed: %s\n", cudaGetErrorString(cudaStatus));
-    }
+    check_error("Render");
     
     cudaMemcpy(h_target_img, d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3, cudaMemcpyDeviceToHost);
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) 
-    {
-        fprintf(stderr, "copy launch failed: %s\n", cudaGetErrorString(cudaStatus));
-    }
+    check_error("copy");
     save_image(h_target_img, RENDER_WIDTH, RENDER_HEIGHT);
     free(h_target_img);
     free(obj_trans_mats);

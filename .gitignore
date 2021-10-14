@@ -16,3 +16,4 @@ JadeRender
 render_args.txt
 *.exp
 *.lib
+JadeRenderCuda.exe
