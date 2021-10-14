@@ -533,6 +533,46 @@ int* emitTrianglesIndices_cu;
 // HDR贴图
 texture<float3, cudaTextureType2D, cudaReadModeElementType> texRef;
 
+__constant__ int nTriangles_dv;
+__constant__ int nEmitTriangles_dv;
+__constant__ int nNodes_dv;
+__constant__ int spp;
+__constant__ float camera_transform_dv[4][4];
+
+
+__global__ void init_curand(curandState* curand_states, int seed)
+{
+    curand_init(seed, threadIdx.x, 0, &(curand_states[threadIdx.x]));
+}
+
+__global__ void render_pixel(unsigned char* target_img, curandState* curand_states)
+{
+    int target_pixel_width = blockIdx.x * TILE_SIZE + threadIdx.x;
+    int target_pixel_height = blockIdx.y * TILE_SIZE + threadIdx.y;
+
+    float3 delta_left = scalar_mult_float3(d_camera_left_direction, (target_pixel_width + 0.5 - RENDER_WIDTH / 2.0) * d_camera_pixel_width);
+    float3 delta_up = scalar_mult_float3(d_camera_up_direction, (target_pixel_height + 0.5 - RENDER_HEIGHT / 2.0) * d_camera_pixel_height);
+    float3 delta = add_float3(delta_left, add_float3(delta_up, scalar_mult_float3(d_camera_direction, d_camera_focal_length)));
+    // float3 delta = make_float3((target_pixel_width + 0.5 - RENDER_WIDTH / 2.0) * d_camera_pixel_width, d_camera_focal_length, (target_pixel_height + 0.5 - RENDER_HEIGHT / 2.0) * d_camera_pixel_height);
+    float3 pixel_center = make_float3(d_camera_position.x + delta.x, d_camera_position.y + delta.y, d_camera_position.z + delta.z);
+    float pixel_radiance = ray_generation(pixel_center, curand_states);
+    // float pixel_radiance = d_light_irradiance * curand_uniform(&curand_states[threadIdx.x]);
+
+    // Gamma correction
+    pixel_radiance /= d_light_irradiance;
+    if (pixel_radiance > 1) {
+        pixel_radiance = 1;
+    }
+    pixel_radiance = powf(pixel_radiance, 0.454545454545);
+
+    
+    unsigned char rgb_value = (unsigned char)(pixel_radiance * 255);
+    // printf("%d, %d : %d\n", target_pixel_width, target_pixel_height, rgb_value);
+    int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
+    target_img[base_idx] = rgb_value;
+    target_img[base_idx + 1] = rgb_value;
+    target_img[base_idx + 2] = rgb_value;
+}
 
 int main()
 {
@@ -646,14 +686,70 @@ int main()
     cout << "HDR load done." << endl;
 
     // 发光三角形索引
-    
+    cudaMalloc(&emitTrianglesIndices_cu, emit_triangles_indices.size() * sizeof(int));
+    cudaMemcpy(emitTrianglesIndices_cu, &emit_triangles_indices[0], emit_triangles_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
     cout << "Emit triangle indices done." << endl;
 
     // 渲染参数设置
+    int spp_hs;
+    cout << "Sample per Pixel: " << endl;
+    cin >> spp_hs;
 
+    cudaMemcpyToSymbol(&nTriangles_dv, &nTriangles, sizeof(int));
+    cudaMemcpyToSymbol(&nEmitTriangles_dv, &nEmitTriangles, sizeof(int));
+    cudaMemcpyToSymbol(&nNodes_dv, &nNodes, sizeof(int));
+    cudaMemcpyToSymbol(&spp, &spp_hs, sizeof(int));
+    cudaMemcpyToSymbol(camera_transform_dv, camera_transform, sizeof(float) * 4 * 4);
 // ----------------------------------------------------------------------------- //
 
     cout << "Start..." << endl << endl;
+
+    // initial random
+    curandState* curand_states;
+    cudaMalloc(&curand_states, TILE_SIZE * sizeof(curandState));
+
+    init_curand <<<1, TILE_SIZE>>> (curand_states, 0);
+    cudaDeviceSynchronize();
+
+    cudaError_t cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) 
+    {
+        fprintf(stderr, "curand init launch failed: %s\n", cudaGetErrorString(cudaStatus));
+    }
+
+    // start render
+    dim3 grid{RENDER_WIDTH / TILE_SIZE, RENDER_HEIGHT / TILE_SIZE, 1};
+    dim3 block{TILE_SIZE, TILE_SIZE, 1};
+    
+    unsigned char* d_target_img;
+    cudaMalloc(&d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3);
+
+    unsigned char* h_target_img = (unsigned char*)malloc(RENDER_WIDTH * RENDER_HEIGHT * 3);
+
+    cudaDeviceSynchronize();
+
+    cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) 
+    {
+        fprintf(stderr, "render launch failed: %s\n", cudaGetErrorString(cudaStatus));
+    }
+    
+    cudaMemcpy(h_target_img, d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3, cudaMemcpyDeviceToHost);
+    cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) 
+    {
+        fprintf(stderr, "copy launch failed: %s\n", cudaGetErrorString(cudaStatus));
+    }
+    save_image(h_target_img, RENDER_WIDTH, RENDER_HEIGHT);
+    free(h_target_img);
+
+    cudaFree(d_target_img);
+    cudaFree(curand_states);
+
+    cudaFree(emitTrianglesIndices_cu);
+    cudaFree(node_cu);
+    cudaFree(triangles_cu);
+    cudaDeviceReset();
 
     return 0;
 }
