@@ -109,23 +109,23 @@ struct vec3_hs {
         data.z = z;
     }
 
-    __host__ inline vec3_hs operator+(const vec3_hs& opr2) {
+    __host__ inline vec3_hs operator+(const vec3_hs& opr2) const {
         return vec3_hs(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
     }
 
-    __host__ inline vec3_hs operator-(const vec3_hs& opr2) {
+    __host__ inline vec3_hs operator-(const vec3_hs& opr2) const {
         return vec3_hs(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
     }
 
-    __host__ inline vec3_hs operator*(const vec3_hs& opr2) {
+    __host__ inline vec3_hs operator*(const vec3_hs& opr2) const {
         return vec3_hs(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
     }
 
-    __host__ inline vec3_hs operator*(float scalar) {
+    __host__ inline vec3_hs operator*(float scalar) const {
         return vec3_hs(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
     }
 
-    __host__ inline vec3_hs operator/(const vec3_hs& opr2) {
+    __host__ inline vec3_hs operator/(const vec3_hs& opr2) const {
         return vec3_hs(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
     }
 
@@ -161,7 +161,7 @@ __host__ inline vec3_hs normalize(const vec3_hs& opr) {
     return vec3_hs(make_float3(opr.data.x * length_rev, opr.data.y * length_rev, opr.data.z * length_rev));
 }
 
-__host__ vec3_hs cross(const vec3_hs& vec_a, const vec3_hs& vec_b) {
+__host__ vec3_hs cross(const vec3_hs& vec_b, const vec3_hs& vec_c) {
     vec3_hs v3(0, 0, 0);
     v3.data.x = vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y;
     v3.data.y = vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z;
@@ -172,6 +172,10 @@ __host__ vec3_hs cross(const vec3_hs& vec_a, const vec3_hs& vec_b) {
 // use in device
 struct vec3_dv {
     float3 data;
+
+    __device__ vec3_dv() {
+
+    }
 
     __host__ vec3_dv(const vec3_hs& ori) {
         data = ori.data;
@@ -239,7 +243,7 @@ __device__ static inline vec3_dv normalize(const vec3_dv& opr) {
     return vec3_dv(make_float3(opr.data.x * length_rev, opr.data.y * length_rev, opr.data.z * length_rev));
 }
 
-__device__ vec3_dv cross(const vec3_dv& vec_a, const vec3_dv& vec_b) {
+__device__ vec3_dv cross(const vec3_dv& vec_b, const vec3_dv& vec_c) {
     vec3_dv v3(0, 0, 0);
     v3.data.x = vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y;
     v3.data.y = vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z;
@@ -374,7 +378,7 @@ __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Mater
         t.p2 = vertices[indices[i + 1]];
         t.p3 = vertices[indices[i + 2]];
         // 计算法线
-        t.norm = normalize_host(cross(t.p2 - t.p1, t.p3 - t.p1));
+        t.norm = normalize(cross(t.p2 - t.p1, t.p3 - t.p1));
 
         // 传材质
         t.material = material;
@@ -382,17 +386,17 @@ __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Mater
 }
 
 // 按照三角形中心排序 -- 比较函数
-bool cmpx(const Triangle& t1, const Triangle& t2) {
+__host__ bool cmpx(const Triangle& t1, const Triangle& t2) {
     vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
     vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.x < center2.data.x;
 }
-bool cmpy(const Triangle& t1, const Triangle& t2) {
+__host__ bool cmpy(const Triangle& t1, const Triangle& t2) {
     vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
     vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.y < center2.data.y;
 }
-bool cmpz(const Triangle& t1, const Triangle& t2) {
+__host__ bool cmpz(const Triangle& t1, const Triangle& t2) {
     vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
     vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.z < center2.data.z;
@@ -535,16 +539,15 @@ __host__ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes
 // ----------------------------------------------------------------------------- //
 vec3_dv eye_center = vec3_dv(0, 0, 0);
 float camera_transform[4][4];
-int spp = 128;
 
 vector<BVHNode> nodes;
 int nEmitTriangles = 0;
 
 
 // Graphic Memories pointer
-Triangle_cu* triangles_cu;
-BVHNode_cu* node_cu;
-int* emitTrianglesIndices_cu;
+__device__ Triangle_cu* triangles_cu;
+__device__ BVHNode_cu* node_cu;
+__device__ int* emitTrianglesIndices_cu;
 // HDR贴图
 texture<float3, cudaTextureType2D, cudaReadModeElementType> texRef;
 
@@ -576,30 +579,32 @@ __global__ void init_curand(curandState* curand_states, int seed)
 
 __device__ vec3_dv toneMapping(vec3_dv c, float limit) {
     float luminance = 0.3 * c.data.x + 0.6 * c.data.y + 0.1 * c.data.z;
-    return c * 1.0 / (1.0 + luminance / limit);
+    return c * float(1.0 / (1.0 + luminance / limit));
 }
 
 // ----------------------------------------------------------------------------- //
 // 将三维向量 v 转为 HDR map 的纹理坐标 uv
 __device__ float2 SampleSphericalMap(float3 v) {
-    float2 uv = make_float2(atanf(v.z, v.x), asinf(v.y));
-    uv /= vec2(2.0 * PI, PI);
-    uv += 0.5;
+    float2 uv = make_float2(atanf(v.z / v.x), asinf(v.y));
+    uv.x /= 2.0 * PI;
+    uv.y /= PI;
+    uv.x += 0.5;
+    uv.y += 0.5;
     uv.y = 1.0 - uv.y;
     return uv;
 }
 
 // 获取 HDR 环境颜色
 __device__ vec3_dv sampleHdr(vec3_dv v) {
-    float2 uv = SampleSphericalMap(normalize(v.data));
-    float3 color = texture(hdrMap, uv).rgb;
+    float2 uv = SampleSphericalMap(normalize(v).data);
+    // float3 color = texture(hdrMap, uv).rgb;
     color = min(color, vec3(10));
     return color;
 }
 
 // 光线和三角形求交
 __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
-    HitResult res;
+    HitResult res{false, 0, INF, vec3_dv(0, 0, 0)};
     res.distance = INF;
     res.isHit = false;
 
@@ -625,13 +630,13 @@ __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
         vec_pb = shadow_tri_b - shadow_tri_a;
         vec_pc = shadow_tri_c - shadow_tri_a;
         vec_pa = src_point - shadow_tri_a;
-        float divider = vec_pb.x * vec_pc.y - vec_pb.y * vec_pc.x;
-        float rate_a = (vec_pc.y * vec_pa.x - vec_pc.x * vec_pa.y) / divider;
-        float rate_b = (-vec_pb.y * vec_pa.x + vec_pb.x * vec_pa.y) / divider;
+        float divider = vec_pb.data.x * vec_pc.data.y - vec_pb.data.y * vec_pc.data.x;
+        float rate_a = (vec_pc.data.y * vec_pa.data.x - vec_pc.data.x * vec_pa.data.y) / divider;
+        float rate_b = (-vec_pb.data.y * vec_pa.data.x + vec_pb.data.x * vec_pa.data.y) / divider;
 
         vec_pb = triangle.p2 - triangle.p1;
         vec_pc = triangle.p3 - triangle.p1;
-        vec_pa = triangle.p1 + rate_a * vec_pb + rate_b * vec_pc;
+        vec_pa = triangle.p1 + vec_pb * rate_a + vec_pc * rate_b;
 
         float distance = dot(vec_pa - src_point, normal_direction);
         if (distance > 0) {
@@ -650,8 +655,20 @@ __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
 }
 
 // 和 aabb 盒子求交，没有交点则返回 -1
+__device__ vec3_dv max(const vec3_dv& opr1, const vec3_dv& opr2) {
+    return vec3_dv(opr1.data.x > opr2.data.x ? opr1.data.x : opr2.data.x,
+        opr1.data.y > opr2.data.y ? opr1.data.y : opr2.data.y,
+        opr1.data.z > opr2.data.z ? opr1.data.z : opr2.data.z);
+}
+
+__device__ vec3_dv min(const vec3_dv& opr1, const vec3_dv& opr2) {
+    return vec3_dv(opr1.data.x < opr2.data.x ? opr1.data.x : opr2.data.x,
+        opr1.data.y < opr2.data.y ? opr1.data.y : opr2.data.y,
+        opr1.data.z < opr2.data.z ? opr1.data.z : opr2.data.z);
+}
+
 __device__ float hitAABB(Ray r, vec3_dv AA, vec3_dv BB) {
-    vec3_dv invdir = 1.0 / r.direction;
+    vec3_dv invdir = vec3_dv(1.0 / r.direction.data.x, 1.0 / r.direction.data.y, 1.0 / r.direction.data.z);
 
     vec3_dv f = (BB - r.startPoint) * invdir;
     vec3_dv n = (AA - r.startPoint) * invdir;
@@ -659,8 +676,8 @@ __device__ float hitAABB(Ray r, vec3_dv AA, vec3_dv BB) {
     vec3_dv tmax = max(f, n);
     vec3_dv tmin = min(f, n);
 
-    float t1 = min(tmax.x, min(tmax.y, tmax.z));
-    float t0 = max(tmin.x, max(tmin.y, tmin.z));
+    float t1 = min(tmax.data.x, min(tmax.data.y, tmax.data.z));
+    float t0 = max(tmin.data.x, max(tmin.data.y, tmin.data.z));
 
     return (t1 >= t0) ? ((t0 > 0.0) ? (t0) : (t1)) : (-1);
 }
@@ -677,7 +694,7 @@ __device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
         if (i == src_object_idx) {
             continue;
         }
-        Triangle triangle = triangles_cu[i];
+        Triangle_cu triangle = triangles_cu[i];
         HitResult new_hit = hitTriangle(triangle, ray, i);
         if(new_hit.isHit && new_hit.distance < res.distance) {
             res = new_hit;
@@ -761,7 +778,7 @@ float size(Triangle_cu triangle)
 {
     vec3_dv v_1 = triangle.p2 - triangle.p1;
     vec3_dv v_2 = triangle.p3 - triangle.p1;
-    vec3_dv cross_product = vec3_dv(v_1.y * v_2.z - v_1.z * v_2.y, v_1.z * v_2.x - v_1.x * v_2.z, v_1.x * v_2.y - v_1.y * v_2.x);
+    vec3_dv cross_product = vec3_dv(v_1.data.y * v_2.data.z - v_1.data.z * v_2.data.y, v_1.data.z * v_2.data.x - v_1.data.x * v_2.data.z, v_1.data.x * v_2.data.y - v_1.data.y * v_2.data.x);
     return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
@@ -774,12 +791,12 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
     vec3_dv out_direction = direction;
     vec3_dv ray_src = hit.hitPoint;
     HitResult obj_hit = hit;
-    vec3_dv obj_hit_normal = triangles_cu[obj_hit.index].normal;
+    vec3_dv obj_hit_normal = triangles_cu[obj_hit.index].norm;
     while (stack_offset < STACK_CAPACITY) {
         // direct light
         // sample from emit triangles
         l_dir = vec3_dv(0);
-        vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].material.brdf * 1 / PI;
+        vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * 1 / PI;
         for (int i = 0; i < nEmitTriangles; ++i) {
             // random select a point on light triangle
             float rand_x = curand_uniform(curand_state);
@@ -806,7 +823,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
 
             if (hit_result.isHit && hit_result.index == emit_tri_idx) {
                 float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
-                l_dir += hit_result.material.emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].normal, obj_light_direction)) 
+                l_dir += triangles_cu[hit_result.index].emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
                             / direction_length_square / direction_length_square * size(t_i);
             }
         }
