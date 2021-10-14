@@ -31,6 +31,7 @@ using namespace std;
 
 #define TILE_SIZE 16
 #define STACK_CAPACITY 128
+#define BVH_STACK_CAPACITY 32768
 #define SHARED_MEM_CAP STACK_CAPACITY * RENDER_WIDTH * RENDER_HEIGHT
 #define RR_RATE 0.9
 #define PI 3.1415926
@@ -642,7 +643,7 @@ __device__ vec3_dv sampleHdr(vec3_dv v) {
 
 // 光线和三角形求交
 __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
-    HitResult res{false, 0.0f, INF, vec3_dv(0, 0, 0)};
+    HitResult res{false, 0, INF, vec3_dv(0, 0, 0)};
     res.distance = INF;
     res.isHit = false;
 
@@ -737,7 +738,7 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_
     res.distance = INF;
 
     // 栈
-    int stack[256];
+    int stack[BVH_STACK_CAPACITY];
     int sp = 0;
 
     stack[sp] = 1;
@@ -782,6 +783,9 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_
                 stack[sp] = node.left;
                 sp++;
 
+                if (sp >= BVH_STACK_CAPACITY) {
+                    printf("Overflow\n");
+                }
                 stack[sp] = node.right;
                 sp++;
             }
@@ -951,34 +955,35 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
 
         // primary hit
         HitResult firstHit = hitBVH(ray, -1, triangles_cu, node_cu);
-        vec3_dv color;
+        // vec3_dv color;
 
-        if(!firstHit.isHit) {
-            color = vec3_dv(0, 0, 0);
-            color = sampleHdr(ray.direction);
-        } else {
-            vec3_dv Le = triangles_cu[firstHit.index].emissive;
-            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
-            color = Le + Li;
-        }
+        // if(!firstHit.isHit) {
+        //     color = vec3_dv(0, 0, 0);
+        //     color = sampleHdr(ray.direction);
+        // } else {
+        //     // vec3_dv Le = triangles_cu[firstHit.index].emissive;
+        //     // vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
+        //     vec3_dv Li = vec3_dv(0, 0, 0);
+        //     // color = Le + Li;
+        // }
 
-        final_result = final_result + color;
+        // final_result = final_result + color;
     }
 
-    final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
+    // final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
     
-    // tone mapping
-    final_result = toneMapping(final_result, 1.5);
+    // // tone mapping
+    // final_result = toneMapping(final_result, 1.5);
 
-    // Gamma correction
-    final_result.data.x = powf(final_result.data.x, 0.454545454545);
-    final_result.data.y = powf(final_result.data.y, 0.454545454545);
-    final_result.data.z = powf(final_result.data.z, 0.454545454545);
+    // // Gamma correction
+    // final_result.data.x = powf(final_result.data.x, 0.454545454545);
+    // final_result.data.y = powf(final_result.data.y, 0.454545454545);
+    // final_result.data.z = powf(final_result.data.z, 0.454545454545);
     
-    int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
-    target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
-    target_img[base_idx + 1] = (unsigned char)(final_result.data.y * 255);
-    target_img[base_idx + 2] = (unsigned char)(final_result.data.x * 255);
+    // int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
+    // target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
+    // target_img[base_idx + 1] = (unsigned char)(final_result.data.y * 255);
+    // target_img[base_idx + 2] = (unsigned char)(final_result.data.x * 255);
 }
 
 void check_error(string pass_name) {
