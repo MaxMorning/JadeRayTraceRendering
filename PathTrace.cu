@@ -549,7 +549,7 @@ __device__ Triangle_cu* triangles_cu;
 __device__ BVHNode_cu* node_cu;
 __device__ int* emitTrianglesIndices_cu;
 // HDR贴图
-texture<float3, cudaTextureType2D, cudaReadModeElementType> texRef;
+texture<float3, 2, cudaReadModeElementType> text_ref;
 
 __constant__ int nTriangles_dv;
 __constant__ int nEmitTriangles_dv;
@@ -597,8 +597,8 @@ __device__ float2 SampleSphericalMap(float3 v) {
 // 获取 HDR 环境颜色
 __device__ vec3_dv sampleHdr(vec3_dv v) {
     float2 uv = SampleSphericalMap(normalize(v).data);
-    // float3 color = texture(hdrMap, uv).rgb;
-    color = min(color, vec3(10));
+    vec3_dv color = vec3_dv(tex2D(text_ref, uv.x, uv.y));
+    color = min(color, vec3_dv(10, 10, 10));
     return color;
 }
 
@@ -1060,7 +1060,19 @@ int main()
     // hdr 全景图
     HDRLoaderResult hdrRes;
     HDRLoader::load("background.hdr", hdrRes);
-    
+
+    cudaChannelFormatDesc h_channel_desc = cudaCreateChannelDesc<float3>();
+    text_ref.addressMode[0] = cudaAddressModeMirror;
+    text_ref.addressMode[1] = cudaAddressModeMirror;
+    text_ref.normalized = true;
+    text_ref.filterMode = cudaFilterModeLinear;
+
+    float3* d_hdr_img;
+    cudaMalloc(&d_hdr_img, hdrRes.width * hdrRes.height * sizeof(float3));
+    cudaMemcpy(d_hdr_img, hdrRes.cols, hdrRes.width * hdrRes.height * sizeof(float3), cudaMemcpyHostToDevice);
+
+    size_t offset;
+    cudaBindTexture2D(&offset, &text_ref, d_hdr_img, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float3));
     cout << "HDR load done." << endl;
 
     // 发光三角形索引
@@ -1121,6 +1133,9 @@ int main()
     }
     save_image(h_target_img, RENDER_WIDTH, RENDER_HEIGHT);
     free(h_target_img);
+
+    cudaUnbindTexture(text_ref);
+    cudaFree(d_hdr_img);
 
     cudaFree(d_target_img);
     cudaFree(curand_states);
