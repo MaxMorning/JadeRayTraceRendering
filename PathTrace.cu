@@ -133,11 +133,6 @@ struct vec3_hs {
         float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
         return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
-
-    inline vec3_hs normalize_host() {
-        float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
-        return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
-    }
 };
 
 __host__ inline float dot(const vec3_hs& opr1, const vec3_hs& opr2) {
@@ -151,7 +146,7 @@ __host__ inline float mixed_product(const vec3_hs& vec_a, const vec3_hs& vec_b, 
         vec_a.data.z * (vec_b.data.x * vec_c.data.y - vec_b.data.y * vec_c.data.x);
 }
 
-vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
+__host__ vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
 {
     vec3_hs v3(0, 0, 0);
     v3.data.x = mat4[0][0] * vec3.data.x + mat4[0][1] * vec3.data.y + mat4[0][2] * vec3.data.z + mat4[0][3] * f4;
@@ -161,6 +156,18 @@ vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
     return v3;
 }
 
+__host__ inline vec3_hs normalize(const vec3_hs& opr) {
+    float length_rev = 1.0 / norm3df(opr.data.x, opr.data.y, opr.data.z);
+    return vec3_hs(make_float3(opr.data.x * length_rev, opr.data.y * length_rev, opr.data.z * length_rev));
+}
+
+__host__ vec3_hs cross(const vec3_hs& vec_a, const vec3_hs& vec_b) {
+    vec3_hs v3(0, 0, 0);
+    v3.data.x = vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y;
+    v3.data.y = vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z;
+    v3.data.z = vec_b.data.x * vec_c.data.y - vec_b.data.y * vec_c.data.x;
+    return v3;
+}
 
 // use in device
 struct vec3_dv {
@@ -204,11 +211,6 @@ struct vec3_dv {
         float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
         return vec3_dv(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
-
-    inline vec3_dv normalize_host() {
-        float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
-        return vec3_dv(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
-    }
 };
 
 __device__ inline float dot(const vec3_dv& opr1, const vec3_dv& opr2) {
@@ -229,6 +231,19 @@ __device__ vec3_dv transform(const vec3_dv& vec3, float f4, float mat4[4][4])
     v3.data.y = mat4[1][0] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[1][2] * vec3.data.z + mat4[1][3] * f4;
     v3.data.z = mat4[2][0] * vec3.data.x + mat4[2][1] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[2][3] * f4;
 
+    return v3;
+}
+
+__device__ static inline vec3_dv normalize(const vec3_dv& opr) {
+    float length_rev = 1.0 / norm3df(opr.data.x, opr.data.y, opr.data.z);
+    return vec3_dv(make_float3(opr.data.x * length_rev, opr.data.y * length_rev, opr.data.z * length_rev));
+}
+
+__device__ vec3_dv cross(const vec3_dv& vec_a, const vec3_dv& vec_b) {
+    vec3_dv v3(0, 0, 0);
+    v3.data.x = vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y;
+    v3.data.y = vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z;
+    v3.data.z = vec_b.data.x * vec_c.data.y - vec_b.data.y * vec_c.data.x;
     return v3;
 }
 
@@ -271,7 +286,7 @@ struct BVHNode_cu {
 };
 
 // 读取 obj
-void readObj(const string& filepath, vector<Triangle>& triangles, Material material, float trans[4][4], bool normal_transform) {
+__host__ void readObj(const string& filepath, vector<Triangle>& triangles, Material material, float trans[4][4], bool normal_transform) {
 
     // 顶点位置，索引
     vector<vec3_hs> vertices;
@@ -334,7 +349,7 @@ void readObj(const string& filepath, vector<Triangle>& triangles, Material mater
         float maxaxis = max(lenx, max(leny, lenz));
         vec3_hs center = vec3_hs((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
         for (auto& v : vertices) {
-            v -= center;
+            v = v - center;
             v.data.x /= maxaxis;
             v.data.y /= maxaxis;
             v.data.z /= maxaxis;
@@ -384,7 +399,7 @@ bool cmpz(const Triangle& t1, const Triangle& t2) {
 }
 
 // SAH 优化构建 BVH
-int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, int r, int n) {
+__host__ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, int r, int n) {
     if (l > r) return 0;
 
     nodes.emplace_back();
@@ -537,12 +552,334 @@ __constant__ int nTriangles_dv;
 __constant__ int nEmitTriangles_dv;
 __constant__ int nNodes_dv;
 __constant__ int spp;
+__constant__ float3 eye_dv;
 __constant__ float camera_transform_dv[4][4];
 
+// 光线
+struct Ray {
+    vec3_dv startPoint;
+    vec3_dv direction;
+};
+
+// 光线求交结果
+struct HitResult {
+    bool isHit;             // 是否命中
+    int index;              // 命中三角形坐标
+    float distance;         // 与交点的距离
+    vec3_dv hitPoint;       // 光线命中点
+};
 
 __global__ void init_curand(curandState* curand_states, int seed)
 {
     curand_init(seed, threadIdx.x, 0, &(curand_states[threadIdx.x]));
+}
+
+__device__ vec3_dv toneMapping(vec3_dv c, float limit) {
+    float luminance = 0.3 * c.data.x + 0.6 * c.data.y + 0.1 * c.data.z;
+    return c * 1.0 / (1.0 + luminance / limit);
+}
+
+// ----------------------------------------------------------------------------- //
+// 将三维向量 v 转为 HDR map 的纹理坐标 uv
+__device__ float2 SampleSphericalMap(float3 v) {
+    float2 uv = make_float2(atanf(v.z, v.x), asinf(v.y));
+    uv /= vec2(2.0 * PI, PI);
+    uv += 0.5;
+    uv.y = 1.0 - uv.y;
+    return uv;
+}
+
+// 获取 HDR 环境颜色
+__device__ vec3_dv sampleHdr(vec3_dv v) {
+    float2 uv = SampleSphericalMap(normalize(v.data));
+    float3 color = texture(hdrMap, uv).rgb;
+    color = min(color, vec3(10));
+    return color;
+}
+
+// 光线和三角形求交
+__device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
+    HitResult res;
+    res.distance = INF;
+    res.isHit = false;
+
+    vec3_dv normal_direction = normalize(ray.direction);
+    vec3_dv src_point = ray.startPoint;
+    // make shadow
+    vec3_dv shadow_tri_a = triangle.p1 - normal_direction * dot(normal_direction, triangle.p1 - src_point);
+    vec3_dv shadow_tri_b = triangle.p2 - normal_direction * dot(normal_direction, triangle.p2 - src_point);
+    vec3_dv shadow_tri_c = triangle.p3 - normal_direction * dot(normal_direction, triangle.p3 - src_point);
+
+    // check in center
+    vec3_dv vec_pa = shadow_tri_a - src_point;
+    vec3_dv vec_pb = shadow_tri_b - src_point;
+    vec3_dv vec_pc = shadow_tri_c - src_point;
+
+    float papb = mixed_product(normal_direction, vec_pa, vec_pb);
+    float pbpc = mixed_product(normal_direction, vec_pb, vec_pc);
+    float pcpa = mixed_product(normal_direction, vec_pc, vec_pa);
+    if ((papb > 0 && pbpc > 0 && pcpa > 0) || (papb < 0 && pbpc < 0 && pcpa < 0)) {
+        // in center
+        // get hit point
+        // get coordinary, reuse vec_pb ,vec_pc
+        vec_pb = shadow_tri_b - shadow_tri_a;
+        vec_pc = shadow_tri_c - shadow_tri_a;
+        vec_pa = src_point - shadow_tri_a;
+        float divider = vec_pb.x * vec_pc.y - vec_pb.y * vec_pc.x;
+        float rate_a = (vec_pc.y * vec_pa.x - vec_pc.x * vec_pa.y) / divider;
+        float rate_b = (-vec_pb.y * vec_pa.x + vec_pb.x * vec_pa.y) / divider;
+
+        vec_pb = triangle.p2 - triangle.p1;
+        vec_pc = triangle.p3 - triangle.p1;
+        vec_pa = triangle.p1 + rate_a * vec_pb + rate_b * vec_pc;
+
+        float distance = dot(vec_pa - src_point, normal_direction);
+        if (distance > 0) {
+            // ray will hit object
+            // package result
+            res.isHit = true;
+            res.hitPoint = vec_pa;
+            res.distance = distance;
+            // res.normal = normalize(cross(triangle.p2 - triangle.p1, triangle.p3 - triangle.p1));
+            // res.viewDir = ray.direction;
+            res.index = index;
+        }
+    }
+
+    return res;
+}
+
+// 和 aabb 盒子求交，没有交点则返回 -1
+__device__ float hitAABB(Ray r, vec3_dv AA, vec3_dv BB) {
+    vec3_dv invdir = 1.0 / r.direction;
+
+    vec3_dv f = (BB - r.startPoint) * invdir;
+    vec3_dv n = (AA - r.startPoint) * invdir;
+
+    vec3_dv tmax = max(f, n);
+    vec3_dv tmin = min(f, n);
+
+    float t1 = min(tmax.x, min(tmax.y, tmax.z));
+    float t0 = max(tmin.x, max(tmin.y, tmin.z));
+
+    return (t1 >= t0) ? ((t0 > 0.0) ? (t0) : (t1)) : (-1);
+}
+
+// ----------------------------------------------------------------------------- //
+
+// 暴力遍历数组下标范围 [l, r] 求最近交点
+__device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
+    HitResult res;
+    res.isHit = false;
+    res.distance = INF;
+    int min_i = l;
+    for(int i = l; i <= r; i++) {
+        if (i == src_object_idx) {
+            continue;
+        }
+        Triangle triangle = triangles_cu[i];
+        HitResult new_hit = hitTriangle(triangle, ray, i);
+        if(new_hit.isHit && new_hit.distance < res.distance) {
+            res = new_hit;
+            min_i = i;
+        }
+    }
+    return res;
+}
+
+// 遍历 BVH 求交
+__device__ HitResult hitBVH(Ray ray, int src_object_idx) {
+    HitResult res;
+    res.isHit = false;
+    res.distance = INF;
+
+    // 栈
+    int stack[256];
+    int sp = 0;
+
+    stack[sp] = 1;
+    sp++;
+    while(sp > 0) {
+        --sp;
+        int top = stack[sp];
+        BVHNode node = node_cu[top];
+
+        // 是叶子节点，遍历三角形，求最近交点
+        if(node.n > 0) {
+            int L = node.index;
+            int R = node.index + node.n - 1;
+            HitResult r = hitArray(ray, L, R, src_object_idx);
+            if(r.isHit && r.distance < res.distance) {
+                res = r;
+            }
+            continue;
+        }
+
+        // 和左右盒子 AABB 求交
+        float d1 = INF; // 左盒子距离
+        float d2 = INF; // 右盒子距离
+        if(node.left > 0) {
+            BVHNode leftNode = node_cu[node.left];
+            d1 = hitAABB(ray, leftNode.AA, leftNode.BB);
+        }
+        if(node.right > 0) {
+            BVHNode rightNode = node_cu[node.right];
+            d2 = hitAABB(ray, rightNode.AA, rightNode.BB);
+        }
+
+        // 在最近的盒子中搜索
+        if(d1 > 0 && d2 > 0) {
+            if(d1<d2) { // d1 < d2, 左边先
+                stack[sp] = node.right;
+                sp++;
+
+                stack[sp] = node.left;
+                sp++;
+            } else {    // d2 < d1, 右边先
+                stack[sp] = node.left;
+                sp++;
+
+                stack[sp] = node.right;
+                sp++;
+            }
+        } else if(d1 > 0) {   // 仅命中左边
+            stack[sp] = node.left;
+            sp++;
+        } else if(d2 > 0) {   // 仅命中右边
+            stack[sp] = node.right;
+            sp++;
+        }
+    }
+
+    return res;
+}
+
+// ----------------------------------------------------------------------------- //
+
+// 路径追踪
+float size(Triangle_cu triangle)
+{
+    vec3_dv v_1 = triangle.p2 - triangle.p1;
+    vec3_dv v_2 = triangle.p3 - triangle.p1;
+    vec3_dv cross_product = vec3_dv(v_1.y * v_2.z - v_1.z * v_2.y, v_1.z * v_2.x - v_1.x * v_2.z, v_1.x * v_2.y - v_1.y * v_2.x);
+    return 0.5 * sqrt(dot(cross_product, cross_product));
+}
+
+vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state) {
+    vec3_dv l_dir = vec3_dv(0, 0, 0);
+    int stack_offset = 0;
+    vec3_dv stack_dir[STACK_CAPACITY];
+    vec3_dv stack_indir_rate[STACK_CAPACITY];
+    // vec3_dv out_direction = -hit.viewDir;
+    vec3_dv out_direction = direction;
+    vec3_dv ray_src = hit.hitPoint;
+    HitResult obj_hit = hit;
+    vec3_dv obj_hit_normal = triangles_cu[obj_hit.index].normal;
+    while (stack_offset < STACK_CAPACITY) {
+        // direct light
+        // sample from emit triangles
+        l_dir = vec3_dv(0);
+        vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].material.brdf * 1 / PI;
+        for (int i = 0; i < nEmitTriangles; ++i) {
+            // random select a point on light triangle
+            float rand_x = curand_uniform(curand_state);
+            float rand_y = curand_uniform(curand_state);
+            if (rand_x + rand_y > 1) {
+                rand_x = 1 - rand_x;
+                rand_y = 1 - rand_y;
+            }
+
+            int emit_tri_idx = emitTrianglesIndices_cu[i];
+            Triangle& t_i = triangles_cu[emit_tri_idx];
+            vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
+
+            // test block
+            vec3_dv obj_light_direction = random_point - ray_src;
+            // check obj_light_direction and out_direction are in the same semi-sphere
+            if (dot(obj_light_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                continue;
+            }
+            Ray new_ray;
+            new_ray.startPoint = ray_src;
+            new_ray.direction = obj_light_direction;
+            HitResult hit_result = hitBVH(new_ray, obj_hit.index);
+
+            if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
+                l_dir += hit_result.material.emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].normal, obj_light_direction)) 
+                            / direction_length_square / direction_length_square * size(t_i);
+            }
+        }
+
+
+        // sample from HDR
+        // random select a point on HDR Texture
+        float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
+        float sine_theta = sqrt(max(0, 1 - cosine_theta * cosine_theta));
+        float fai_value = 2 * PI * curand_uniform(curand_state);
+        vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+        if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+            ray_direction *= -1;
+        }
+
+        // test block
+        Ray new_ray;
+        new_ray.startPoint = ray_src;
+        new_ray.direction = ray_direction;
+        HitResult hit_result = hitBVH(new_ray, obj_hit.index);
+        if (!hit_result.isHit) {
+            vec3_dv skyColor = sampleHdr(ray_direction);
+            l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI;
+        }
+
+        float rr_result = curand_uniform(curand_state);
+        if (rr_result < RR_RATE) {
+            vec3_dv indir_rate = vec3_dv(0);
+            // random select a ray from src_point
+            float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
+            float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+            float fai_value = 2 * PI * curand_uniform(curand_state);
+            vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+            if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                ray_direction *= -1;
+            }
+
+            Ray new_ray;
+            new_ray.startPoint = ray_src;
+            new_ray.direction = ray_direction;
+            HitResult new_hit = hitBVH(new_ray, obj_hit.index);
+            if (new_hit.isHit && (new_hit.material.emissive.x < 1.5e-4 && new_hit.material.emissive.y < 1.5e-4 && new_hit.material.emissive.z < 1.5e-4)) {
+                // Hit something
+                ray_direction *= -1;
+                indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit_normal)) / RR_RATE;
+                ray_src = new_hit.hitPoint;
+                out_direction = ray_direction;
+
+                // if (stack_offset >= STACK_CAPACITY) {
+                //     return vec3_dv(1);
+                // }
+                stack_dir[stack_offset] = l_dir;
+                stack_indir_rate[stack_offset] = indir_rate;
+                ++stack_offset;
+                obj_hit = new_hit;
+                obj_hit_normal = triangles_cu[obj_hit.index].normal;
+            }
+            else {
+                break;
+            }
+        }
+        else {
+            break;
+        }
+    }
+
+    // calc final irradiance
+    for (int i = stack_offset - 1; i >= 0; --i) {
+        l_dir *= stack_indir_rate[i];
+        l_dir += stack_dir[i];
+    }
+    
+    return l_dir;
 }
 
 __global__ void render_pixel(unsigned char* target_img, curandState* curand_states)
@@ -550,28 +887,52 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
     int target_pixel_width = blockIdx.x * TILE_SIZE + threadIdx.x;
     int target_pixel_height = blockIdx.y * TILE_SIZE + threadIdx.y;
 
-    float3 delta_left = scalar_mult_float3(d_camera_left_direction, (target_pixel_width + 0.5 - RENDER_WIDTH / 2.0) * d_camera_pixel_width);
-    float3 delta_up = scalar_mult_float3(d_camera_up_direction, (target_pixel_height + 0.5 - RENDER_HEIGHT / 2.0) * d_camera_pixel_height);
-    float3 delta = add_float3(delta_left, add_float3(delta_up, scalar_mult_float3(d_camera_direction, d_camera_focal_length)));
-    // float3 delta = make_float3((target_pixel_width + 0.5 - RENDER_WIDTH / 2.0) * d_camera_pixel_width, d_camera_focal_length, (target_pixel_height + 0.5 - RENDER_HEIGHT / 2.0) * d_camera_pixel_height);
-    float3 pixel_center = make_float3(d_camera_position.x + delta.x, d_camera_position.y + delta.y, d_camera_position.z + delta.z);
-    float pixel_radiance = ray_generation(pixel_center, curand_states);
-    // float pixel_radiance = d_light_irradiance * curand_uniform(&curand_states[threadIdx.x]);
+    vec3_dv final_result(0, 0, 0);
+
+    // 投射光线
+    Ray ray;
+
+    ray.startPoint = eye_dv;
+    for (int i = 0; i < spp; ++i) {
+        float left_offset = -1.0 + 2.0 / RENDER_WIDTH * (target_pixel_width + curand_uniform(&curand_states[threadIdx.x]) - 0.5);
+        float up_offset = -1.0 + 2.0 / RENDER_HEIGHT * (target_pixel_height + curand_uniform(&curand_states[threadIdx.x]) - 0.5);
+        
+        // translate
+        vec3_dv dir = vec3_dv(0, 0, 0);
+        dir.data.x = camera_transform_dv[0][0] * left_offset + camera_transform_dv[0][1] * top_offset + camera_transform_dv[0][2] * -1.5;
+        dir.data.y = camera_transform_dv[1][0] * left_offset + camera_transform_dv[1][1] * top_offset + camera_transform_dv[1][2] * -1.5;
+        dir.data.z = camera_transform_dv[2][0] * left_offset + camera_transform_dv[2][1] * top_offset + camera_transform_dv[2][2] * -1.5;
+
+        ray.direction = normalize(dir);
+
+        // primary hit
+        HitResult firstHit = hitBVH(ray, -1);
+        vec3_dv color;
+
+        if(!firstHit.isHit) {
+            color = vec3_dv(0, 0, 0);
+            color = sampleHdr(ray.direction);
+        } else {
+            vec3_dv Le = triangles_cu[firstHit.index].material.emissive;
+            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x]);
+            color = Le + Li;
+        }
+
+        final_result = final_result + color;
+    }
+
+    final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
+    
+    // tone mapping
+    final_result = toneMapping(final_result, 1.5);
 
     // Gamma correction
-    pixel_radiance /= d_light_irradiance;
-    if (pixel_radiance > 1) {
-        pixel_radiance = 1;
-    }
-    pixel_radiance = powf(pixel_radiance, 0.454545454545);
-
+    final_result.data = powf(final_result.data, 0.454545454545);
     
-    unsigned char rgb_value = (unsigned char)(pixel_radiance * 255);
-    // printf("%d, %d : %d\n", target_pixel_width, target_pixel_height, rgb_value);
     int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
-    target_img[base_idx] = rgb_value;
-    target_img[base_idx + 1] = rgb_value;
-    target_img[base_idx + 2] = rgb_value;
+    target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
+    target_img[base_idx + 1] = (unsigned char)(final_result.data.y * 255);
+    target_img[base_idx + 2] = (unsigned char)(final_result.data.x * 255);
 }
 
 int main()
@@ -699,6 +1060,7 @@ int main()
     cudaMemcpyToSymbol(&nEmitTriangles_dv, &nEmitTriangles, sizeof(int));
     cudaMemcpyToSymbol(&nNodes_dv, &nNodes, sizeof(int));
     cudaMemcpyToSymbol(&spp, &spp_hs, sizeof(int));
+    cudaMemcpyToSymbol(&eye_dv, &eye_center, sizeof(float3));
     cudaMemcpyToSymbol(camera_transform_dv, camera_transform, sizeof(float) * 4 * 4);
 // ----------------------------------------------------------------------------- //
 
