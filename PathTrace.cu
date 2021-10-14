@@ -16,10 +16,11 @@
 #include <lib/hdrloader.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#include <cmath>
 
 using namespace std;
 
-#define INF 2147483647
+#define INF 2147483647.0
 #ifdef LARGE
 #define RENDER_WIDTH 1024
 #define RENDER_HEIGHT 1024
@@ -103,6 +104,9 @@ struct vec3_hs {
         data = ori;
     }
 
+    __host__ vec3_hs() {
+    }
+
     __host__ vec3_hs(float x, float y, float z) {
         data.x = x;
         data.y = y;
@@ -130,7 +134,7 @@ struct vec3_hs {
     }
 
     __host__ inline vec3_hs normalize() {
-        float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
+        float length_rev = 1.0 / sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
         return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
 };
@@ -195,6 +199,13 @@ struct vec3_dv {
         return vec3_dv(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
     }
 
+    __device__ inline vec3_dv& operator+=(const vec3_dv& opr2) {
+        data.x += opr2.data.x;
+        data.y += opr2.data.y;
+        data.z += opr2.data.z;
+        return (*this);
+    }
+
     __device__ inline vec3_dv operator-(const vec3_dv& opr2) {
         return vec3_dv(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
     }
@@ -203,12 +214,29 @@ struct vec3_dv {
         return vec3_dv(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
     }
 
+    __device__ inline vec3_dv& operator*=(const vec3_dv& opr2) {
+        data.x *= opr2.data.x;
+        data.y *= opr2.data.y;
+        data.z *= opr2.data.z;
+        return (*this);    }
+
     __device__ inline vec3_dv operator*(float scalar) {
         return vec3_dv(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
     }
 
+    __device__ inline vec3_dv& operator*=(float scalar) {
+        data.x *= scalar;
+        data.y *= scalar;
+        data.z *= scalar;
+        return (*this);
+    }
+
     __device__ inline vec3_dv operator/(const vec3_dv& opr2) {
         return vec3_dv(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
+    }
+
+    __device__ inline vec3_dv operator/(float opr2) {
+        return vec3_dv(make_float3(data.x / opr2, data.y / opr2, data.z / opr2));
     }
 
     __device__ inline vec3_dv normalize() {
@@ -272,6 +300,11 @@ struct BVHNode {
     int left, right;    // 左右子树索引
     int n, index;       // 叶子节点信息
     vec3_hs AA, BB;        // 碰撞盒
+
+    BVHNode() {
+        AA = vec3_hs();
+        BB = vec3_hs();
+    }
 };
 
 // used in device
@@ -400,6 +433,18 @@ __host__ bool cmpz(const Triangle& t1, const Triangle& t2) {
     vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
     vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.z < center2.data.z;
+}
+
+__device__ vec3_dv max(const vec3_dv& opr1, const vec3_dv& opr2) {
+    return vec3_dv(opr1.data.x > opr2.data.x ? opr1.data.x : opr2.data.x,
+        opr1.data.y > opr2.data.y ? opr1.data.y : opr2.data.y,
+        opr1.data.z > opr2.data.z ? opr1.data.z : opr2.data.z);
+}
+
+__device__ vec3_dv min(const vec3_dv& opr1, const vec3_dv& opr2) {
+    return vec3_dv(opr1.data.x < opr2.data.x ? opr1.data.x : opr2.data.x,
+        opr1.data.y < opr2.data.y ? opr1.data.y : opr2.data.y,
+        opr1.data.z < opr2.data.z ? opr1.data.z : opr2.data.z);
 }
 
 // SAH 优化构建 BVH
@@ -549,7 +594,9 @@ __device__ Triangle_cu* triangles_cu;
 __device__ BVHNode_cu* node_cu;
 __device__ int* emitTrianglesIndices_cu;
 // HDR贴图
-texture<float3, 2, cudaReadModeElementType> text_ref;
+texture<float, 2, cudaReadModeElementType> text_ref_r;
+texture<float, 2, cudaReadModeElementType> text_ref_g;
+texture<float, 2, cudaReadModeElementType> text_ref_b;
 
 __constant__ int nTriangles_dv;
 __constant__ int nEmitTriangles_dv;
@@ -597,14 +644,14 @@ __device__ float2 SampleSphericalMap(float3 v) {
 // 获取 HDR 环境颜色
 __device__ vec3_dv sampleHdr(vec3_dv v) {
     float2 uv = SampleSphericalMap(normalize(v).data);
-    vec3_dv color = vec3_dv(tex2D(text_ref, uv.x, uv.y));
+    vec3_dv color = vec3_dv(tex2D(text_ref_r, uv.x, uv.y), tex2D(text_ref_g, uv.x, uv.y), tex2D(text_ref_b, uv.x, uv.y));
     color = min(color, vec3_dv(10, 10, 10));
     return color;
 }
 
 // 光线和三角形求交
 __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
-    HitResult res{false, 0, INF, vec3_dv(0, 0, 0)};
+    HitResult res{false, 0.0f, INF, vec3_dv(0, 0, 0)};
     res.distance = INF;
     res.isHit = false;
 
@@ -655,17 +702,6 @@ __device__ HitResult hitTriangle(Triangle_cu triangle, Ray ray, int index) {
 }
 
 // 和 aabb 盒子求交，没有交点则返回 -1
-__device__ vec3_dv max(const vec3_dv& opr1, const vec3_dv& opr2) {
-    return vec3_dv(opr1.data.x > opr2.data.x ? opr1.data.x : opr2.data.x,
-        opr1.data.y > opr2.data.y ? opr1.data.y : opr2.data.y,
-        opr1.data.z > opr2.data.z ? opr1.data.z : opr2.data.z);
-}
-
-__device__ vec3_dv min(const vec3_dv& opr1, const vec3_dv& opr2) {
-    return vec3_dv(opr1.data.x < opr2.data.x ? opr1.data.x : opr2.data.x,
-        opr1.data.y < opr2.data.y ? opr1.data.y : opr2.data.y,
-        opr1.data.z < opr2.data.z ? opr1.data.z : opr2.data.z);
-}
 
 __device__ float hitAABB(Ray r, vec3_dv AA, vec3_dv BB) {
     vec3_dv invdir = vec3_dv(1.0 / r.direction.data.x, 1.0 / r.direction.data.y, 1.0 / r.direction.data.z);
@@ -689,7 +725,7 @@ __device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
     HitResult res;
     res.isHit = false;
     res.distance = INF;
-    int min_i = l;
+
     for(int i = l; i <= r; i++) {
         if (i == src_object_idx) {
             continue;
@@ -698,7 +734,6 @@ __device__ HitResult hitArray(Ray ray, int l, int r, int src_object_idx) {
         HitResult new_hit = hitTriangle(triangle, ray, i);
         if(new_hit.isHit && new_hit.distance < res.distance) {
             res = new_hit;
-            min_i = i;
         }
     }
     return res;
@@ -719,7 +754,7 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx) {
     while(sp > 0) {
         --sp;
         int top = stack[sp];
-        BVHNode node = node_cu[top];
+        BVHNode_cu node = node_cu[top];
 
         // 是叶子节点，遍历三角形，求最近交点
         if(node.n > 0) {
@@ -736,11 +771,11 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx) {
         float d1 = INF; // 左盒子距离
         float d2 = INF; // 右盒子距离
         if(node.left > 0) {
-            BVHNode leftNode = node_cu[node.left];
+            BVHNode_cu leftNode = node_cu[node.left];
             d1 = hitAABB(ray, leftNode.AA, leftNode.BB);
         }
         if(node.right > 0) {
-            BVHNode rightNode = node_cu[node.right];
+            BVHNode_cu rightNode = node_cu[node.right];
             d2 = hitAABB(ray, rightNode.AA, rightNode.BB);
         }
 
@@ -774,7 +809,7 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx) {
 // ----------------------------------------------------------------------------- //
 
 // 路径追踪
-float size(Triangle_cu triangle)
+__device__ float size(Triangle_cu triangle)
 {
     vec3_dv v_1 = triangle.p2 - triangle.p1;
     vec3_dv v_2 = triangle.p3 - triangle.p1;
@@ -782,7 +817,7 @@ float size(Triangle_cu triangle)
     return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
-vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state) {
+__device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state) {
     vec3_dv l_dir = vec3_dv(0, 0, 0);
     int stack_offset = 0;
     vec3_dv stack_dir[STACK_CAPACITY];
@@ -795,9 +830,9 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
     while (stack_offset < STACK_CAPACITY) {
         // direct light
         // sample from emit triangles
-        l_dir = vec3_dv(0);
-        vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * 1 / PI;
-        for (int i = 0; i < nEmitTriangles; ++i) {
+        l_dir = vec3_dv(0, 0, 0);
+        vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * (1.0 / PI);
+        for (int i = 0; i < nEmitTriangles_dv; ++i) {
             // random select a point on light triangle
             float rand_x = curand_uniform(curand_state);
             float rand_y = curand_uniform(curand_state);
@@ -807,7 +842,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
             }
 
             int emit_tri_idx = emitTrianglesIndices_cu[i];
-            Triangle& t_i = triangles_cu[emit_tri_idx];
+            Triangle_cu& t_i = triangles_cu[emit_tri_idx];
             vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
 
             // test block
@@ -822,7 +857,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
             HitResult hit_result = hitBVH(new_ray, obj_hit.index);
 
             if (hit_result.isHit && hit_result.index == emit_tri_idx) {
-                float direction_length_square = obj_light_direction.x * obj_light_direction.x + obj_light_direction.y * obj_light_direction.y + obj_light_direction.z * obj_light_direction.z;
+                float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
                 l_dir += triangles_cu[hit_result.index].emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
                             / direction_length_square / direction_length_square * size(t_i);
             }
@@ -832,7 +867,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
         // sample from HDR
         // random select a point on HDR Texture
         float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
-        float sine_theta = sqrt(max(0, 1 - cosine_theta * cosine_theta));
+        float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
         float fai_value = 2 * PI * curand_uniform(curand_state);
         vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
         if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
@@ -851,7 +886,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
 
         float rr_result = curand_uniform(curand_state);
         if (rr_result < RR_RATE) {
-            vec3_dv indir_rate = vec3_dv(0);
+            vec3_dv indir_rate = vec3_dv(0, 0, 0);
             // random select a ray from src_point
             float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
             float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
@@ -865,7 +900,8 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
             new_ray.startPoint = ray_src;
             new_ray.direction = ray_direction;
             HitResult new_hit = hitBVH(new_ray, obj_hit.index);
-            if (new_hit.isHit && (new_hit.material.emissive.x < 1.5e-4 && new_hit.material.emissive.y < 1.5e-4 && new_hit.material.emissive.z < 1.5e-4)) {
+            float3 new_hit_emissive = triangles_cu[new_hit.index].emissive.data;
+            if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
                 // Hit something
                 ray_direction *= -1;
                 indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit_normal)) / RR_RATE;
@@ -879,7 +915,7 @@ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state)
                 stack_indir_rate[stack_offset] = indir_rate;
                 ++stack_offset;
                 obj_hit = new_hit;
-                obj_hit_normal = triangles_cu[obj_hit.index].normal;
+                obj_hit_normal = triangles_cu[obj_hit.index].norm;
             }
             else {
                 break;
@@ -916,9 +952,9 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
         
         // translate
         vec3_dv dir = vec3_dv(0, 0, 0);
-        dir.data.x = camera_transform_dv[0][0] * left_offset + camera_transform_dv[0][1] * top_offset + camera_transform_dv[0][2] * -1.5;
-        dir.data.y = camera_transform_dv[1][0] * left_offset + camera_transform_dv[1][1] * top_offset + camera_transform_dv[1][2] * -1.5;
-        dir.data.z = camera_transform_dv[2][0] * left_offset + camera_transform_dv[2][1] * top_offset + camera_transform_dv[2][2] * -1.5;
+        dir.data.x = camera_transform_dv[0][0] * left_offset + camera_transform_dv[0][1] * up_offset + camera_transform_dv[0][2] * -1.5;
+        dir.data.y = camera_transform_dv[1][0] * left_offset + camera_transform_dv[1][1] * up_offset + camera_transform_dv[1][2] * -1.5;
+        dir.data.z = camera_transform_dv[2][0] * left_offset + camera_transform_dv[2][1] * up_offset + camera_transform_dv[2][2] * -1.5;
 
         ray.direction = normalize(dir);
 
@@ -930,7 +966,7 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
             color = vec3_dv(0, 0, 0);
             color = sampleHdr(ray.direction);
         } else {
-            vec3_dv Le = triangles_cu[firstHit.index].material.emissive;
+            vec3_dv Le = triangles_cu[firstHit.index].emissive;
             vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x]);
             color = Le + Li;
         }
@@ -944,7 +980,9 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
     final_result = toneMapping(final_result, 1.5);
 
     // Gamma correction
-    final_result.data = powf(final_result.data, 0.454545454545);
+    final_result.data.x = powf(final_result.data.x, 0.454545454545);
+    final_result.data.y = powf(final_result.data.y, 0.454545454545);
+    final_result.data.z = powf(final_result.data.z, 0.454545454545);
     
     int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
     target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
@@ -968,7 +1006,7 @@ int main()
     fin >> obj_cnt;
 
     vector<string> obj_file_name(obj_cnt);
-    float obj_trans_mats[obj_cnt][4][4];
+    float* obj_trans_mats = new float[obj_cnt * 4 * 4];
     vector<Material> obj_materials(obj_cnt);
     vector<bool> obj_normalize(obj_cnt);
     for (int i = 0; i < obj_cnt; ++i) {
@@ -976,21 +1014,23 @@ int main()
 
         for (int row = 0; row < 4; ++row) {
             for (int col = 0; col < 4; ++col) {
-                fin >> obj_trans_mats[i][row][col];
+                fin >> obj_trans_mats[i * 16 + row * 4 + col];
             }
         }
 
         fin >> obj_materials[i].emissive.data.x >> obj_materials[i].emissive.data.y >> obj_materials[i].emissive.data.z;
         fin >> obj_materials[i].brdf.data.x >> obj_materials[i].brdf.data.y >> obj_materials[i].brdf.data.z;
 
-        fin >> obj_normalize[i];
+        int is_normalize;
+        fin >> is_normalize;
+        obj_normalize[i] = (is_normalize != 0);
     }
 
     fin.close();
 
     vector<Triangle> triangles;
     for (int i = 0; i < obj_cnt; ++i) {
-        readObj(obj_file_name[i], triangles, obj_materials[i], obj_trans_mats[i], obj_normalize[i]);
+        readObj(obj_file_name[i], triangles, obj_materials[i], (float (*)[4])&obj_trans_mats[i * 16], obj_normalize[i]);
     }
 
     size_t nTriangles = triangles.size();
@@ -1062,17 +1102,44 @@ int main()
     HDRLoader::load("background.hdr", hdrRes);
 
     cudaChannelFormatDesc h_channel_desc = cudaCreateChannelDesc<float3>();
-    text_ref.addressMode[0] = cudaAddressModeMirror;
-    text_ref.addressMode[1] = cudaAddressModeMirror;
-    text_ref.normalized = true;
-    text_ref.filterMode = cudaFilterModeLinear;
+    text_ref_r.addressMode[0] = cudaAddressModeMirror;
+    text_ref_r.addressMode[1] = cudaAddressModeMirror;
+    text_ref_r.normalized = true;
+    text_ref_r.filterMode = cudaFilterModeLinear;
 
-    float3* d_hdr_img;
-    cudaMalloc(&d_hdr_img, hdrRes.width * hdrRes.height * sizeof(float3));
-    cudaMemcpy(d_hdr_img, hdrRes.cols, hdrRes.width * hdrRes.height * sizeof(float3), cudaMemcpyHostToDevice);
+    text_ref_g.addressMode[0] = cudaAddressModeMirror;
+    text_ref_g.addressMode[1] = cudaAddressModeMirror;
+    text_ref_g.normalized = true;
+    text_ref_g.filterMode = cudaFilterModeLinear;
+
+    text_ref_b.addressMode[0] = cudaAddressModeMirror;
+    text_ref_b.addressMode[1] = cudaAddressModeMirror;
+    text_ref_b.normalized = true;
+    text_ref_b.filterMode = cudaFilterModeLinear;
+
+    float* h_hdr_img_r = new float[hdrRes.width * hdrRes.height];
+    float* h_hdr_img_g = new float[hdrRes.width * hdrRes.height];
+    float* h_hdr_img_b = new float[hdrRes.width * hdrRes.height];
+    for (int i = 0; i < hdrRes.width * hdrRes.height; ++i) {
+        h_hdr_img_r[i] = hdrRes.cols[i * 3];
+        h_hdr_img_g[i] = hdrRes.cols[i * 3 + 1];
+        h_hdr_img_b[i] = hdrRes.cols[i * 3 + 2];
+    }
+
+    float* d_hdr_img_r;
+    float* d_hdr_img_g;
+    float* d_hdr_img_b;
+    cudaMalloc(&d_hdr_img_r, hdrRes.width * hdrRes.height * sizeof(float));
+    cudaMemcpy(d_hdr_img_r, h_hdr_img_r, hdrRes.width * hdrRes.height * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc(&d_hdr_img_g, hdrRes.width * hdrRes.height * sizeof(float));
+    cudaMemcpy(d_hdr_img_g, h_hdr_img_g, hdrRes.width * hdrRes.height * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc(&d_hdr_img_b, hdrRes.width * hdrRes.height * sizeof(float));
+    cudaMemcpy(d_hdr_img_b, h_hdr_img_b, hdrRes.width * hdrRes.height * sizeof(float), cudaMemcpyHostToDevice);
 
     size_t offset;
-    cudaBindTexture2D(&offset, &text_ref, d_hdr_img, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float3));
+    cudaBindTexture2D(&offset, &text_ref_r, d_hdr_img_r, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float));
+    cudaBindTexture2D(&offset, &text_ref_g, d_hdr_img_g, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float));
+    cudaBindTexture2D(&offset, &text_ref_b, d_hdr_img_b, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float));
     cout << "HDR load done." << endl;
 
     // 发光三角形索引
@@ -1115,6 +1182,8 @@ int main()
     unsigned char* d_target_img;
     cudaMalloc(&d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3);
 
+    render_pixel <<<grid, block>>> (d_target_img, curand_states);
+
     unsigned char* h_target_img = (unsigned char*)malloc(RENDER_WIDTH * RENDER_HEIGHT * 3);
 
     cudaDeviceSynchronize();
@@ -1133,9 +1202,17 @@ int main()
     }
     save_image(h_target_img, RENDER_WIDTH, RENDER_HEIGHT);
     free(h_target_img);
+    free(obj_trans_mats);
 
-    cudaUnbindTexture(text_ref);
-    cudaFree(d_hdr_img);
+    cudaUnbindTexture(text_ref_b);
+    cudaUnbindTexture(text_ref_g);
+    cudaUnbindTexture(text_ref_r);
+    cudaFree(d_hdr_img_r);
+    cudaFree(d_hdr_img_g);
+    cudaFree(d_hdr_img_b);
+    free(h_hdr_img_b);
+    free(h_hdr_img_g);
+    free(h_hdr_img_r);
 
     cudaFree(d_target_img);
     cudaFree(curand_states);

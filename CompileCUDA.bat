@@ -1,1 +1,1 @@
-nvcc -arch=sm_75 -I ./ lib/hdrloader.cpp PathTrace.cu -o JadeRenderCuda.exe
+nvcc -arch=sm_75 -std=c++14 -I ./ lib/hdrloader.cpp PathTrace.cu -o JadeRenderCuda.exe
