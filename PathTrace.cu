@@ -95,64 +95,136 @@ __host__ void save_image(unsigned char* target_img, int width, int height)
 }
 
 // 3D resources
-struct vec3_cu {
+// use in host
+struct vec3_hs {
     float3 data;
 
-    __device__ vec3_cu(const float3& ori) {
+    __host__ vec3_hs(const float3& ori) {
         data = ori;
     }
 
-    __device__ vec3_cu(float x, float y, float z) {
+    __host__ vec3_hs(float x, float y, float z) {
         data.x = x;
         data.y = y;
         data.z = z;
     }
 
-    __device__ inline vec3_cu operator+(const vec3_cu& opr2) {
-        return vec3_cu(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
+    __host__ inline vec3_hs operator+(const vec3_hs& opr2) {
+        return vec3_hs(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
     }
 
-    __device__ inline vec3_cu operator-(const vec3_cu& opr2) {
-        return vec3_cu(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
+    __host__ inline vec3_hs operator-(const vec3_hs& opr2) {
+        return vec3_hs(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
     }
 
-    __device__ inline vec3_cu operator*(const vec3_cu& opr2) {
-        return vec3_cu(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
+    __host__ inline vec3_hs operator*(const vec3_hs& opr2) {
+        return vec3_hs(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
     }
 
-    __device__ inline vec3_cu operator*(float scalar) {
-        return vec3_cu(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
+    __host__ inline vec3_hs operator*(float scalar) {
+        return vec3_hs(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
     }
 
-    __device__ inline vec3_cu operator/(const vec3_cu& opr2) {
-        return vec3_cu(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
+    __host__ inline vec3_hs operator/(const vec3_hs& opr2) {
+        return vec3_hs(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
     }
 
-    __device__ inline vec3_cu normalize() {
+    __host__ inline vec3_hs normalize() {
         float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
-        return vec3_cu(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
+        return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
 
-    inline vec3_cu normalize_host() {
+    inline vec3_hs normalize_host() {
         float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
-        return vec3_cu(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
+        return vec3_hs(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
     }
 };
 
-__device__ inline float dot(const vec3_cu& opr1, const vec3_cu& opr2) {
+__host__ inline float dot(const vec3_hs& opr1, const vec3_hs& opr2) {
     return opr1.data.x * opr2.data.x + opr1.data.y * opr2.data.y + opr1.data.z * opr2.data.z;
 }
 
-__device__ inline float mixed_product(const vec3_cu& vec_a, const vec3_cu& vec_b, const vec3_cu& vec_c)
+__host__ inline float mixed_product(const vec3_hs& vec_a, const vec3_hs& vec_b, const vec3_hs& vec_c)
 {
     return vec_a.data.x * (vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y) + 
         vec_a.data.y * (vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z) + 
         vec_a.data.z * (vec_b.data.x * vec_c.data.y - vec_b.data.y * vec_c.data.x);
 }
 
-vec3_cu transform(const vec3_cu& vec3, float f4, float mat4[4][4])
+vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
 {
-    vec3_cu v3(0, 0, 0);
+    vec3_hs v3(0, 0, 0);
+    v3.data.x = mat4[0][0] * vec3.data.x + mat4[0][1] * vec3.data.y + mat4[0][2] * vec3.data.z + mat4[0][3] * f4;
+    v3.data.y = mat4[1][0] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[1][2] * vec3.data.z + mat4[1][3] * f4;
+    v3.data.z = mat4[2][0] * vec3.data.x + mat4[2][1] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[2][3] * f4;
+
+    return v3;
+}
+
+
+// use in device
+struct vec3_dv {
+    float3 data;
+
+    __host__ vec3_dv(const vec3_hs& ori) {
+        data = ori.data;
+    }
+
+    __device__ vec3_dv(const float3& ori) {
+        data = ori;
+    }
+
+    __device__ vec3_dv(float x, float y, float z) {
+        data.x = x;
+        data.y = y;
+        data.z = z;
+    }
+
+    __device__ inline vec3_dv operator+(const vec3_dv& opr2) {
+        return vec3_dv(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
+    }
+
+    __device__ inline vec3_dv operator-(const vec3_dv& opr2) {
+        return vec3_dv(make_float3(data.x - opr2.data.x, data.y - opr2.data.y, data.z - opr2.data.z));
+    }
+
+    __device__ inline vec3_dv operator*(const vec3_dv& opr2) {
+        return vec3_dv(make_float3(data.x * opr2.data.x, data.y * opr2.data.y, data.z * opr2.data.z));
+    }
+
+    __device__ inline vec3_dv operator*(float scalar) {
+        return vec3_dv(make_float3(data.x * scalar, data.y * scalar, data.z * scalar));
+    }
+
+    __device__ inline vec3_dv operator/(const vec3_dv& opr2) {
+        return vec3_dv(make_float3(data.x / opr2.data.x, data.y / opr2.data.y, data.z / opr2.data.z));
+    }
+
+    __device__ inline vec3_dv normalize() {
+        float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
+        return vec3_dv(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
+    }
+
+    inline vec3_dv normalize_host() {
+        float length_rev = 1.0 / norm3df(data.x, data.y, data.z);
+        return vec3_dv(make_float3(data.x * length_rev, data.y * length_rev, data.z * length_rev));
+    }
+};
+
+__device__ inline float dot(const vec3_dv& opr1, const vec3_dv& opr2) {
+    return opr1.data.x * opr2.data.x + opr1.data.y * opr2.data.y + opr1.data.z * opr2.data.z;
+}
+
+__device__ inline float mixed_product(const vec3_dv& vec_a, const vec3_dv& vec_b, const vec3_dv& vec_c)
+{
+    return vec_a.data.x * (vec_b.data.y * vec_c.data.z - vec_b.data.z * vec_c.data.y) + 
+        vec_a.data.y * (vec_b.data.z * vec_c.data.x - vec_b.data.x * vec_c.data.z) + 
+        vec_a.data.z * (vec_b.data.x * vec_c.data.y - vec_b.data.y * vec_c.data.x);
+}
+
+__device__ vec3_dv transform(const vec3_dv& vec3, float f4, float mat4[4][4])
+{
+    vec3_dv v3(0, 0, 0);
     v3.data.x = mat4[0][0] * vec3.data.x + mat4[0][1] * vec3.data.y + mat4[0][2] * vec3.data.z + mat4[0][3] * f4;
     v3.data.y = mat4[1][0] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[1][2] * vec3.data.z + mat4[1][3] * f4;
     v3.data.z = mat4[2][0] * vec3.data.x + mat4[2][1] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[2][3] * f4;
@@ -161,81 +233,48 @@ vec3_cu transform(const vec3_cu& vec3, float f4, float mat4[4][4])
 }
 
 // 物体表面材质定义
+// complex calculated in device, edit in host
 struct Material {
-    vec3_cu emissive = vec3_cu(0, 0, 0);  // 作为光源时的发光颜色
-    vec3_cu brdf = vec3_cu(0.8, 0.8, 0.8); // BRDF
+    vec3_dv emissive = vec3_dv(0, 0, 0);  // 作为光源时的发光颜色
+    vec3_dv brdf = vec3_dv(0.8, 0.8, 0.8); // BRDF
 };
 
 // 三角形定义
+// used in host
 struct Triangle {
-    vec3_cu p1, p2, p3;    // 顶点坐标
-    vec3_cu norm;    // 顶点法线
+    vec3_hs p1, p2, p3;    // 顶点坐标
+    vec3_hs norm;    // 顶点法线
     Material material;  // 材质
 };
 
 // BVH 树节点
+// used in host
 struct BVHNode {
     int left, right;    // 左右子树索引
     int n, index;       // 叶子节点信息
-    vec3_cu AA, BB;        // 碰撞盒
+    vec3_hs AA, BB;        // 碰撞盒
 };
 
-// Used in CUDA
+// used in device
 struct Triangle_cu {
-    vec3_cu p1, p2, p3;    // 顶点坐标
-    vec3_cu norm;          // 法线
-    vec3_cu emissive;      // 自发光参数
-    vec3_cu brdf;          // BRDF
+    vec3_dv p1, p2, p3;    // 顶点坐标
+    vec3_dv norm;          // 法线
+    vec3_dv emissive;      // 自发光参数
+    vec3_dv brdf;          // BRDF
 };
 
+// used in device
 struct BVHNode_cu {
     int left, right;    // 左右子树索引
     int n, index;       // 叶子节点信息
-    vec3_cu AA, BB;        // 碰撞盒
+    vec3_dv AA, BB;        // 碰撞盒
 };
-
-// 模型变换矩阵
-// struct mat4 {
-//     float data[4][4];
-
-//     mat4(float ori[4][4]) {
-//         for (int r = 0; r < )
-//     }
-
-//     mat4 operator*(const mat4& opr2) {
-//         mat4 result;
-//     }
-// }
-// void getTransformMatrix(vec3_cu rotateCtrl, vec3_cu translateCtrl, vec3_cu scaleCtrl, float* result_mat) {
-//     float scale[4][4]  = {
-//         scaleCtrl.data.x, 0, 0, 0,
-//         0, scaleCtrl.data.y, 0, 0,
-//         0, 0, scaleCtrl.data.z, 0,
-//         0, 0, 0, 1
-//     };
-
-//     float translate[4][4]  = {
-//         1, 0, 0, translateCtrl.data.x,
-//         0, 1, 0, translateCtrl.data.y,
-//         0, 0, 1, translateCtrl.data.z,
-//         0, 0, 0, 1
-//     };
-
-
-//     mat4 rotate = unit;
-//     rotate = glm::rotate(rotate, glm::radians(rotateCtrl.x), glm::vec3(1, 0, 0));
-//     rotate = glm::rotate(rotate, glm::radians(rotateCtrl.y), glm::vec3(0, 1, 0));
-//     rotate = glm::rotate(rotate, glm::radians(rotateCtrl.z), glm::vec3(0, 0, 1));
-
-//     mat4 model = translate * rotate * scale;
-//     return model;
-// }
 
 // 读取 obj
 void readObj(const string& filepath, vector<Triangle>& triangles, Material material, float trans[4][4], bool normal_transform) {
 
     // 顶点位置，索引
-    vector<vec3_cu> vertices;
+    vector<vec3_hs> vertices;
     vector<int> indices;
 
     // 打开文件流
@@ -293,7 +332,7 @@ void readObj(const string& filepath, vector<Triangle>& triangles, Material mater
         float leny = maxy - miny;
         float lenz = maxz - minz;
         float maxaxis = max(lenx, max(leny, lenz));
-        vec3_cu center = vec3_cu((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
+        vec3_hs center = vec3_hs((maxx + minx) / 2, (maxy + miny) / 2, (maxz + minz) / 2);
         for (auto& v : vertices) {
             v -= center;
             v.data.x /= maxaxis;
@@ -329,18 +368,18 @@ void readObj(const string& filepath, vector<Triangle>& triangles, Material mater
 
 // 按照三角形中心排序 -- 比较函数
 bool cmpx(const Triangle& t1, const Triangle& t2) {
-    vec3_cu center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_cu(3, 3, 3);
-    vec3_cu center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_cu(3, 3, 3);
+    vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
+    vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.x < center2.data.x;
 }
 bool cmpy(const Triangle& t1, const Triangle& t2) {
-    vec3_cu center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_cu(3, 3, 3);
-    vec3_cu center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_cu(3, 3, 3);
+    vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
+    vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.y < center2.data.y;
 }
 bool cmpz(const Triangle& t1, const Triangle& t2) {
-    vec3_cu center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_cu(3, 3, 3);
-    vec3_cu center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_cu(3, 3, 3);
+    vec3_hs center1 = (t1.p1 + t1.p2 + t1.p3) / vec3_hs(3, 3, 3);
+    vec3_hs center2 = (t2.p1 + t2.p2 + t2.p3) / vec3_hs(3, 3, 3);
     return center1.data.z < center2.data.z;
 }
 
@@ -351,8 +390,8 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
     nodes.emplace_back();
     int id = nodes.size() - 1;
     nodes[id].left = nodes[id].right = nodes[id].n = nodes[id].index = 0;
-    nodes[id].AA = vec3_cu(1145141919, 1145141919, 1145141919);
-    nodes[id].BB = vec3_cu(-1145141919, -1145141919, -1145141919);
+    nodes[id].AA = vec3_hs(1145141919, 1145141919, 1145141919);
+    nodes[id].BB = vec3_hs(-1145141919, -1145141919, -1145141919);
 
     // 计算 AABB
     for (int i = l; i <= r; i++) {
@@ -391,8 +430,8 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
 
         // leftMax[i]: [l, i] 中最大的 xyz 值
         // leftMin[i]: [l, i] 中最小的 xyz 值
-        vector<vec3_cu> leftMax(r - l + 1, vec3_cu(-INF, -INF, -INF));
-        vector<vec3_cu> leftMin(r - l + 1, vec3_cu(INF, INF, INF));
+        vector<vec3_hs> leftMax(r - l + 1, vec3_hs(-INF, -INF, -INF));
+        vector<vec3_hs> leftMin(r - l + 1, vec3_hs(INF, INF, INF));
         // 计算前缀 注意 i-l 以对齐到下标 0
         for (int i = l; i <= r; i++) {
             Triangle& t = triangles[i];
@@ -409,8 +448,8 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
 
         // rightMax[i]: [i, r] 中最大的 xyz 值
         // rightMin[i]: [i, r] 中最小的 xyz 值
-        vector<vec3_cu> rightMax(r - l + 1, vec3_cu(-INF, -INF, -INF));
-        vector<vec3_cu> rightMin(r - l + 1, vec3_cu(INF, INF, INF));
+        vector<vec3_hs> rightMax(r - l + 1, vec3_hs(-INF, -INF, -INF));
+        vector<vec3_hs> rightMin(r - l + 1, vec3_hs(INF, INF, INF));
         // 计算后缀 注意 i-l 以对齐到下标 0
         for (int i = r; i >= l; i--) {
             Triangle& t = triangles[i];
@@ -431,8 +470,8 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
         for (int i = l; i <= r - 1; i++) {
             float lenx, leny, lenz;
             // 左侧 [l, i]
-            vec3_cu leftAA = leftMin[i - l];
-            vec3_cu leftBB = leftMax[i - l];
+            vec3_hs leftAA = leftMin[i - l];
+            vec3_hs leftBB = leftMax[i - l];
             lenx = leftBB.data.x - leftAA.data.x;
             leny = leftBB.data.y - leftAA.data.y;
             lenz = leftBB.data.z - leftAA.data.z;
@@ -440,8 +479,8 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
             float leftCost = leftS * (i - l + 1);
 
             // 右侧 [i+1, r]
-            vec3_cu rightAA = rightMin[i + 1 - l];
-            vec3_cu rightBB = rightMax[i + 1 - l];
+            vec3_hs rightAA = rightMin[i + 1 - l];
+            vec3_hs rightBB = rightMax[i + 1 - l];
             lenx = rightBB.data.x - rightAA.data.x;
             leny = rightBB.data.y - rightAA.data.y;
             lenz = rightBB.data.z - rightAA.data.z;
@@ -479,13 +518,21 @@ int buildBVHwithSAH(vector<Triangle>& triangles, vector<BVHNode>& nodes, int l, 
 }
 
 // ----------------------------------------------------------------------------- //
-vec3_cu eye_center = vec3_cu(0, 0, 0);
+vec3_dv eye_center = vec3_dv(0, 0, 0);
 float camera_transform[4][4];
 int spp = 128;
 
-vector<Triangle> triangles;
 vector<BVHNode> nodes;
 int nEmitTriangles = 0;
+
+
+// Graphic Memories pointer
+Triangle_cu* triangles_cu;
+BVHNode_cu* node_cu;
+int* emitTrianglesIndices_cu;
+// HDR贴图
+texture<float3, cudaTextureType2D, cudaReadModeElementType> texRef;
+
 
 int main()
 {
@@ -505,6 +552,7 @@ int main()
     vector<string> obj_file_name(obj_cnt);
     float obj_trans_mats[obj_cnt][4][4];
     vector<Material> obj_materials(obj_cnt);
+    vector<bool> obj_normalize(obj_cnt);
     for (int i = 0; i < obj_cnt; ++i) {
         fin >> obj_file_name[i];
 
@@ -516,34 +564,16 @@ int main()
 
         fin >> obj_materials[i].emissive.data.x >> obj_materials[i].emissive.data.y >> obj_materials[i].emissive.data.z;
         fin >> obj_materials[i].brdf.data.x >> obj_materials[i].brdf.data.y >> obj_materials[i].brdf.data.z;
+
+        fin >> obj_normalize[i];
     }
 
     fin.close();
 
-    Material m;
-//    m.brdf = vec3(0.8, 0.8, 0.8);
-//    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
-//
-//    m.brdf = vec3(1, 1, 1);
-//    m.emissive = vec3(20, 100, 0);
-//    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
-
-    // Cornell Box
-    /*
-    r = 8;
-    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
-    m.brdf = vec3(0.72, 0.72, 0.72);
-    readObj("cornell.obj", triangles, m, trans_mat, false);
-
-    m.brdf = vec3(0.72, 0, 0);
-    readObj("cornell_left.obj", triangles, m, trans_mat, false);
-
-    m.brdf = vec3(0, 0.72, 0);
-    readObj("cornell_right.obj", triangles, m, trans_mat, false);
-
-    m.brdf = vec3(0.78, 0.78, 0.78);
-    m.emissive = vec3(40, 40, 40);
-    readObj("light.obj", triangles, m, trans_mat, false);
+    vector<Triangle> triangles;
+    for (int i = 0; i < obj_cnt; ++i) {
+        readObj(obj_file_name[i], triangles, obj_materials[i], obj_trans_mats[i], obj_normalize[i]);
+    }
 
     size_t nTriangles = triangles.size();
 
@@ -554,112 +584,76 @@ int main()
     testNode.left = 255;
     testNode.right = 128;
     testNode.n = 30;
-    testNode.AA = vec3(1, 1, 0);
-    testNode.BB = vec3(0, 1, 0);
+    testNode.AA = vec3_hs(1, 1, 0);
+    testNode.BB = vec3_hs(0, 1, 0);
     nodes.push_back(testNode);
-    //buildBVH(triangles, nodes, 0, triangles.size() - 1, 8);
+
     buildBVHwithSAH(triangles, nodes, 0, triangles.size() - 1, 8);
     int nNodes = nodes.size();
     cout << "BVH Build done: " << nNodes << " nodes." << endl;
 
     // 编码 三角形, 材质
-    vector<Triangle_encoded> triangles_encoded(nTriangles);
+    vector<Triangle_cu> triangles_encoded(nTriangles);
     vector<int> emit_triangles_indices;
     for (int i = 0; i < nTriangles; i++) {
         Triangle& t = triangles[i];
         Material& m_ = t.material;
         // 顶点位置
-        triangles_encoded[i].p1 = t.p1;
-        triangles_encoded[i].p2 = t.p2;
-        triangles_encoded[i].p3 = t.p3;
+        triangles_encoded[i].p1 = vec3_dv(t.p1);
+        triangles_encoded[i].p2 = vec3_dv(t.p2);
+        triangles_encoded[i].p3 = vec3_dv(t.p3);
         // 顶点法线
-        triangles_encoded[i].norm = t.norm;
+        triangles_encoded[i].norm = vec3_dv(t.norm);
         // 材质
         triangles_encoded[i].emissive = m_.emissive;
         triangles_encoded[i].brdf = m_.brdf;
 
         // 统计发光三角形
-        if (m_.emissive.x > 1.5e-4 || m_.emissive.y > 1.5e-4 || m_.emissive.z > 1.5e-4) {
+        if (m_.emissive.data.x > 1.5e-4 || m_.emissive.data.y > 1.5e-4 || m_.emissive.data.z > 1.5e-4) {
             emit_triangles_indices.push_back(i);
             ++nEmitTriangles;
         }
     }
 
     // 编码 BVHNode, aabb
-    vector<BVHNode_encoded> nodes_encoded(nNodes);
+    vector<BVHNode_cu> nodes_encoded(nNodes);
     for (int i = 0; i < nNodes; i++) {
-        nodes_encoded[i].childs = vec3(nodes[i].left, nodes[i].right, 0);
-        nodes_encoded[i].leafInfo = vec3(nodes[i].n, nodes[i].index, 0);
-        nodes_encoded[i].AA = nodes[i].AA;
-        nodes_encoded[i].BB = nodes[i].BB;
+        nodes_encoded[i].left = nodes[i].left;
+        nodes_encoded[i].right = nodes[i].right;
+        nodes_encoded[i].n = nodes[i].n;
+        nodes_encoded[i].index = nodes[i].index;
+        nodes_encoded[i].AA = vec3_dv(nodes[i].AA);
+        nodes_encoded[i].BB = vec3_dv(nodes[i].BB);
     }
     cout << "Code BVH Done." << endl;
 
     // ----------------------------------------------------------------------------- //
-
-    // 生成纹理
-
+    // 传入显存
     // 三角形数组
-    GLuint tbo0;
-    glGenBuffers(1, &tbo0);
-    glBindBuffer(GL_TEXTURE_BUFFER, tbo0);
-    glBufferData(GL_TEXTURE_BUFFER, nTriangles * sizeof(Triangle_encoded), &triangles_encoded[0], GL_STATIC_DRAW);
-    glGenTextures(1, &trianglesTextureBuffer);
-
-    glBindTexture(GL_TEXTURE_BUFFER, trianglesTextureBuffer);
-
-    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGB32F, tbo0);
+    cudaMalloc(&triangles_cu, nTriangles * sizeof(Triangle_cu));
+    cudaMemcpy(triangles_cu, &triangles_encoded[0], nTriangles * sizeof(Triangle_cu), cudaMemcpyHostToDevice);
     cout << "GL Triangle Set." << endl;
 
     // BVHNode 数组
-    GLuint tbo1;
-    glGenBuffers(1, &tbo1);
-    glBindBuffer(GL_TEXTURE_BUFFER, tbo1);
-    glBufferData(GL_TEXTURE_BUFFER, nodes_encoded.size() * sizeof(BVHNode_encoded), &nodes_encoded[0], GL_STATIC_DRAW);
-    glGenTextures(1, &nodesTextureBuffer);
-    glBindTexture(GL_TEXTURE_BUFFER, nodesTextureBuffer);
-    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGB32F, tbo1);
+    cudaMalloc(&node_cu, nodes_encoded.size() * sizeof(BVHNode_cu));
+    cudaMemcpy(triangles_cu, &nodes_encoded[0], nodes_encoded.size() * sizeof(BVHNode_cu), cudaMemcpyHostToDevice);
     cout << "GL BVH Set." << endl;
 
     // hdr 全景图
     HDRLoaderResult hdrRes;
     HDRLoader::load("background.hdr", hdrRes);
-    hdrMap = getTextureRGB32F(hdrRes.width, hdrRes.height);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, hdrRes.width, hdrRes.height, 0, GL_RGB, GL_FLOAT, hdrRes.cols);
+    
     cout << "HDR load done." << endl;
 
     // 发光三角形索引
-    GLuint tbo2;
-    glGenBuffers(1, &tbo2);
-    glBindBuffer(GL_TEXTURE_BUFFER, tbo2);
-
-    glBufferData(GL_TEXTURE_BUFFER, nEmitTriangles * sizeof(int), &emit_triangles_indices[0], GL_STATIC_DRAW);
-    glGenTextures(1, &emitTrianglesIndices);
-    glBindTexture(GL_TEXTURE_BUFFER, emitTrianglesIndices);
-    glTexBuffer(GL_TEXTURE_BUFFER, GL_R32I, tbo2);
+    
     cout << "Emit triangle indices done." << endl;
-    // ----------------------------------------------------------------------------- //
 
-    // 管线配置
+    // 渲染参数设置
 
-    set_shader("./shaders/fshader_preview.fsh", -1);
-
-    // ----------------------------------------------------------------------------- //
+// ----------------------------------------------------------------------------- //
 
     cout << "Start..." << endl << endl;
 
-    glEnable(GL_DEPTH_TEST);  // 开启深度测试
-    glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑
-
-    //循环，直到用户关闭窗口
-    while(!glfwWindowShouldClose(window))
-    {
-        glfwPollEvents();
-
-        move_camera(window);
-        display(window, true);
-    }
-    glfwTerminate();
-    */
     return 0;
 }

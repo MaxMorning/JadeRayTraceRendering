@@ -350,11 +350,13 @@ mat4 getTransformMatrix(vec3 rotateCtrl, vec3 translateCtrl, vec3 scaleCtrl) {
 std::vector<std::string> obj_file_name;
 std::vector<mat4> obj_trans_mats;
 std::vector<Material> obj_materials;
+std::vector<bool> obj_normalize;
 void readObj(const std::string& filepath, std::vector<Triangle>& triangles, Material material, mat4 trans, bool normal_transform) {
     // 记录
     obj_file_name.push_back(filepath);
     obj_trans_mats.push_back(trans);
     obj_materials.push_back(material);
+    obj_normalize.push_back(normal_transform);
     
     // 顶点位置，索引
     std::vector<vec3> vertices;
@@ -879,6 +881,7 @@ void generate_arguments()
 
         fout << obj_materials[i].emissive.x << ' ' << obj_materials[i].emissive.y << ' ' << obj_materials[i].emissive.z << std::endl;
         fout << obj_materials[i].brdf.x << ' ' << obj_materials[i].brdf.y << ' ' << obj_materials[i].brdf.z << std::endl;
+        fout << obj_normalize[i] << std::endl;
     }
 
     fout.close();
