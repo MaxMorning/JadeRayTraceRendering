@@ -31,8 +31,7 @@ using namespace std;
 
 #define TILE_SIZE 16
 #define STACK_CAPACITY 128
-#define BVH_STACK_CAPACITY 32768
-#define SHARED_MEM_CAP STACK_CAPACITY * RENDER_WIDTH * RENDER_HEIGHT
+#define BVH_STACK_CAPACITY 128
 #define RR_RATE 0.9
 #define PI 3.1415926
 
@@ -624,7 +623,7 @@ __device__ vec3_dv toneMapping(vec3_dv c, float limit) {
 // ----------------------------------------------------------------------------- //
 // 将三维向量 v 转为 HDR map 的纹理坐标 uv
 __device__ float2 SampleSphericalMap(float3 v) {
-    float2 uv = make_float2(atanf(v.z / v.x), asinf(v.y));
+    float2 uv = make_float2(atan2f(v.z, v.x), asinf(v.y));
     uv.x /= 2.0 * PI;
     uv.y /= PI;
     uv.x += 0.5;
@@ -760,8 +759,8 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_
         }
 
         // 和左右盒子 AABB 求交
-        float d1 = INF; // 左盒子距离
-        float d2 = INF; // 右盒子距离
+        float d1 = -1; // 左盒子距离
+        float d2 = -1; // 右盒子距离
         if(node.left > 0) {
             BVHNode_cu leftNode = node_cu[node.left];
             d1 = hitAABB(ray, leftNode.AA, leftNode.BB);
@@ -783,9 +782,6 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_
                 stack[sp] = node.left;
                 sp++;
 
-                if (sp >= BVH_STACK_CAPACITY) {
-                    printf("Overflow\n");
-                }
                 stack[sp] = node.right;
                 sp++;
             }
@@ -955,35 +951,38 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
 
         // primary hit
         HitResult firstHit = hitBVH(ray, -1, triangles_cu, node_cu);
-        // vec3_dv color;
+        vec3_dv color;
 
-        // if(!firstHit.isHit) {
-        //     color = vec3_dv(0, 0, 0);
-        //     color = sampleHdr(ray.direction);
-        // } else {
-        //     // vec3_dv Le = triangles_cu[firstHit.index].emissive;
-        //     // vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
-        //     vec3_dv Li = vec3_dv(0, 0, 0);
-        //     // color = Le + Li;
-        // }
+        if(!firstHit.isHit) {
+            color = vec3_dv(0, 0, 0);
+            color = sampleHdr(ray.direction);
+        } else {
+            // printf("Hit!\n");
+            vec3_dv Le = triangles_cu[firstHit.index].emissive;
+            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
+            // vec3_dv Li = vec3_dv(1, 1, 1);
+            color = Le + Li;
+        }
 
-        // final_result = final_result + color;
+        final_result = final_result + color;
     }
 
-    // final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
+    final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
     
-    // // tone mapping
-    // final_result = toneMapping(final_result, 1.5);
+    // tone mapping
+    final_result = toneMapping(final_result, 1.5);
 
-    // // Gamma correction
-    // final_result.data.x = powf(final_result.data.x, 0.454545454545);
-    // final_result.data.y = powf(final_result.data.y, 0.454545454545);
-    // final_result.data.z = powf(final_result.data.z, 0.454545454545);
+    // Gamma correction
+    final_result.data.x = powf(final_result.data.x, 0.454545454545);
+    final_result.data.y = powf(final_result.data.y, 0.454545454545);
+    final_result.data.z = powf(final_result.data.z, 0.454545454545);
+
+    final_result *= 255.0;
     
-    // int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
-    // target_img[base_idx] = (unsigned char)(final_result.data.z * 255);
-    // target_img[base_idx + 1] = (unsigned char)(final_result.data.y * 255);
-    // target_img[base_idx + 2] = (unsigned char)(final_result.data.x * 255);
+    int base_idx = 3 * (target_pixel_height * RENDER_WIDTH + target_pixel_width);
+    target_img[base_idx] = (unsigned char)(final_result.data.z > 255 ? 255 : final_result.data.z);
+    target_img[base_idx + 1] = (unsigned char)(final_result.data.y > 255 ? 255 : final_result.data.y);
+    target_img[base_idx + 2] = (unsigned char)(final_result.data.x > 255 ? 255 : final_result.data.x);
 }
 
 void check_error(string pass_name) {
@@ -1098,12 +1097,14 @@ int main()
     // 三角形数组
     cudaMalloc(&triangles_cu, nTriangles * sizeof(Triangle_cu));
     cudaMemcpy(triangles_cu, &triangles_encoded[0], nTriangles * sizeof(Triangle_cu), cudaMemcpyHostToDevice);
-    cout << "GL Triangle Set." << endl;
+    cout << "Triangle Set." << endl;
+    check_error("set triangles");
 
     // BVHNode 数组
     cudaMalloc(&node_cu, nodes_encoded.size() * sizeof(BVHNode_cu));
-    cudaMemcpy(triangles_cu, &nodes_encoded[0], nodes_encoded.size() * sizeof(BVHNode_cu), cudaMemcpyHostToDevice);
-    cout << "GL BVH Set." << endl;
+    cudaMemcpy(node_cu, &nodes_encoded[0], nodes_encoded.size() * sizeof(BVHNode_cu), cudaMemcpyHostToDevice);
+    cout << "BVH Set." << endl;
+    check_error("set bvh");
 
     // hdr 全景图
     HDRLoaderResult hdrRes;
@@ -1149,13 +1150,14 @@ int main()
     cudaBindTexture2D(&offset, &text_ref_g, d_hdr_img_g, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float));
     cudaBindTexture2D(&offset, &text_ref_b, d_hdr_img_b, &h_channel_desc, hdrRes.width, hdrRes.height, hdrRes.width * sizeof(float));
     cout << "HDR load done." << endl;
+    check_error("set HDR");
 
     // 发光三角形索引
     cudaMalloc(&emitTrianglesIndices_cu, emit_triangles_indices.size() * sizeof(int));
     cudaMemcpy(emitTrianglesIndices_cu, &emit_triangles_indices[0], emit_triangles_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
     cout << "Emit triangle indices done." << endl;
 
-    check_error("set scene");
+    check_error("set emit triangle");
     // 渲染参数设置
     int spp_hs;
     cout << "Sample per Pixel: " << endl;

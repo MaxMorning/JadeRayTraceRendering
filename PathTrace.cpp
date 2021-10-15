@@ -881,7 +881,7 @@ void generate_arguments()
 
         fout << obj_materials[i].emissive.x << ' ' << obj_materials[i].emissive.y << ' ' << obj_materials[i].emissive.z << std::endl;
         fout << obj_materials[i].brdf.x << ' ' << obj_materials[i].brdf.y << ' ' << obj_materials[i].brdf.z << std::endl;
-        fout << obj_normalize[i] << std::endl;
+        fout << (obj_normalize[i] ? 1 : 0) << std::endl;
     }
 
     fout.close();
