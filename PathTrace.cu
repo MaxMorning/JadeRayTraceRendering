@@ -34,6 +34,7 @@ using namespace std;
 #define BVH_STACK_CAPACITY 128
 #define RR_RATE 0.9
 #define PI 3.1415926
+#define RAND_SIZE 31
 
 // BMP Operation
 // 文件信息头结构体
@@ -938,8 +939,8 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
 
     ray.startPoint = eye_dv;
     for (int i = 0; i < spp; ++i) {
-        float left_offset = -1.0 + 2.0 / RENDER_WIDTH * (target_pixel_width + curand_uniform(&curand_states[threadIdx.x]) - 0.5);
-        float up_offset = -1.0 + 2.0 / RENDER_HEIGHT * (target_pixel_height + curand_uniform(&curand_states[threadIdx.x]) - 0.5);
+        float left_offset = -1.0 + 2.0 / RENDER_WIDTH * (target_pixel_width + curand_uniform(&curand_states[(threadIdx.x + 7 * threadIdx.y) % RAND_SIZE]) - 0.5);
+        float up_offset = -1.0 + 2.0 / RENDER_HEIGHT * (target_pixel_height + curand_uniform(&curand_states[(threadIdx.x + 7 * threadIdx.y) % RAND_SIZE]) - 0.5);
         
         // translate
         vec3_dv dir = vec3_dv(left_offset, up_offset, -1.5);
@@ -957,7 +958,7 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
         } else {
             // printf("Hit!\n");
             vec3_dv Le = triangles_cu[firstHit.index].emissive;
-            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[threadIdx.x], triangles_cu, node_cu, emitTrianglesIndices_cu);
+            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[(threadIdx.x + 7 * threadIdx.y) % RAND_SIZE], triangles_cu, node_cu, emitTrianglesIndices_cu);
             // vec3_dv Li = vec3_dv(1, 1, 1);
             color = Le + Li;
         }
@@ -1175,9 +1176,9 @@ int main()
 
     // initial random
     curandState* curand_states;
-    cudaMalloc(&curand_states, TILE_SIZE * sizeof(curandState));
+    cudaMalloc(&curand_states, RAND_SIZE * sizeof(curandState));
 
-    init_curand <<<1, TILE_SIZE>>> (curand_states, 0);
+    init_curand <<<1, RAND_SIZE>>> (curand_states, 0);
     cudaDeviceSynchronize();
     check_error("curand init");
 
