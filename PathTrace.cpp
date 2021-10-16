@@ -788,6 +788,7 @@ void move_camera(GLFWwindow* window) {
     }
 }
 void generate_arguments();
+void offline_render(int spp, GLFWwindow* window);
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
@@ -813,11 +814,21 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
             case GLFW_KEY_R:
             {
+                int spp;
+                std::cout << "Sample per Pixel : " << std::endl;
+                std::cin >> spp;
+                offline_render(spp, window);
+            }
+                break;
+
+            case GLFW_KEY_F:
+            {
                 generate_arguments();
                 glfwSetWindowShouldClose(window, GL_TRUE);
-                std::cout << "Launching Cuda Rendering..." << std::endl;
+                std::cout << "Saving Cuda Render Args" << std::endl;
             }
-            break;
+                break;
+
             default:
                 key_status[key] = true;
         }
@@ -886,6 +897,40 @@ void generate_arguments()
     }
 
     fout.close();
+}
+
+void offline_render(int spp, GLFWwindow* window)
+{
+    // pipeline settings
+    set_shader("./shaders/fshader_render.fsh", spp);
+
+    // start render
+    std::cout << "Start Rendering..." << std::endl << std::endl;
+
+    glEnable(GL_DEPTH_TEST);  // 开启深度测试
+    glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑
+    frameCounter = 0;
+    display(window, false);
+
+    // save
+    std::cout << "BEGIN SAVE" << std::endl;
+    unsigned char* image = new unsigned char[WIDTH * HEIGHT * 3];
+    std::cout << "ALLOCATE" << std::endl;
+    glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+    glReadPixels(0, 0, WIDTH, HEIGHT, GL_BGR, GL_UNSIGNED_BYTE, image);
+    std::cout << "READ PIXELS" << std::endl;
+    check_error(0);
+    save_image(image, WIDTH, HEIGHT);
+    std::cout << "STORE" << std::endl;
+    delete[] image;
+    std::cout << "RENDER DONE" << std::endl;
+
+    frameCounter = 0;
+    // switch to preview shader
+    set_shader("./shaders/fshader_preview.fsh", -1);
+    glEnable(GL_DEPTH_TEST);  // 开启深度测试
+    glClearColor(0.0, 0.0, 0.0, 1.0);   // 背景颜色 -- 黑
+    display(window, true);
 }
 
 int main()
