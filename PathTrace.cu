@@ -63,7 +63,7 @@ typedef struct
 
 __host__ void save_image(unsigned char* target_img, int width, int height)
 {
-    FILE* file_ptr = fopen("RenderResult.bmp", "wb+");
+    FILE* file_ptr = fopen("RenderResultCuda.bmp", "wb+");
 
     unsigned short fileType = 0x4d42;
     _BITMAPFILEHEADER fileHeader;
@@ -148,9 +148,9 @@ __host__ inline float mixed_product(const vec3_hs& vec_a, const vec3_hs& vec_b, 
 __host__ vec3_hs transform(const vec3_hs& vec3, float f4, float mat4[4][4])
 {
     vec3_hs v3(0, 0, 0);
-    v3.data.x = mat4[0][0] * vec3.data.x + mat4[0][1] * vec3.data.y + mat4[0][2] * vec3.data.z + mat4[0][3] * f4;
-    v3.data.y = mat4[1][0] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[1][2] * vec3.data.z + mat4[1][3] * f4;
-    v3.data.z = mat4[2][0] * vec3.data.x + mat4[2][1] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[2][3] * f4;
+    v3.data.x = mat4[0][0] * vec3.data.x + mat4[1][0] * vec3.data.y + mat4[2][0] * vec3.data.z + mat4[3][0] * f4;
+    v3.data.y = mat4[0][1] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[2][1] * vec3.data.z + mat4[3][1] * f4;
+    v3.data.z = mat4[0][2] * vec3.data.x + mat4[1][2] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[3][2] * f4;
 
     return v3;
 }
@@ -254,9 +254,9 @@ __device__ inline float mixed_product(const vec3_dv& vec_a, const vec3_dv& vec_b
 __device__ vec3_dv transform(const vec3_dv& vec3, float f4, float mat4[4][4])
 {
     vec3_dv v3(0, 0, 0);
-    v3.data.x = mat4[0][0] * vec3.data.x + mat4[0][1] * vec3.data.y + mat4[0][2] * vec3.data.z + mat4[0][3] * f4;
-    v3.data.y = mat4[1][0] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[1][2] * vec3.data.z + mat4[1][3] * f4;
-    v3.data.z = mat4[2][0] * vec3.data.x + mat4[2][1] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[2][3] * f4;
+    v3.data.x = mat4[0][0] * vec3.data.x + mat4[1][0] * vec3.data.y + mat4[2][0] * vec3.data.z + mat4[3][0] * f4;
+    v3.data.y = mat4[0][1] * vec3.data.x + mat4[1][1] * vec3.data.y + mat4[2][1] * vec3.data.z + mat4[3][1] * f4;
+    v3.data.z = mat4[0][2] * vec3.data.x + mat4[1][2] * vec3.data.y + mat4[2][2] * vec3.data.z + mat4[3][2] * f4;
 
     return v3;
 }
@@ -942,10 +942,8 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
         float up_offset = -1.0 + 2.0 / RENDER_HEIGHT * (target_pixel_height + curand_uniform(&curand_states[threadIdx.x]) - 0.5);
         
         // translate
-        vec3_dv dir = vec3_dv(0, 0, 0);
-        dir.data.x = camera_transform_dv[0][0] * left_offset + camera_transform_dv[0][1] * up_offset + camera_transform_dv[0][2] * -1.5;
-        dir.data.y = camera_transform_dv[1][0] * left_offset + camera_transform_dv[1][1] * up_offset + camera_transform_dv[1][2] * -1.5;
-        dir.data.z = camera_transform_dv[2][0] * left_offset + camera_transform_dv[2][1] * up_offset + camera_transform_dv[2][2] * -1.5;
+        vec3_dv dir = vec3_dv(left_offset, up_offset, -1.5);
+        dir = transform(dir, 0, camera_transform_dv);
 
         ray.direction = normalize(dir);
 
@@ -973,9 +971,9 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
     final_result = toneMapping(final_result, 1.5);
 
     // Gamma correction
-    final_result.data.x = powf(final_result.data.x, 0.454545454545);
-    final_result.data.y = powf(final_result.data.y, 0.454545454545);
-    final_result.data.z = powf(final_result.data.z, 0.454545454545);
+    final_result.data.x = powf(final_result.data.x, 1.0 / 2.2);
+    final_result.data.y = powf(final_result.data.y, 1.0 / 2.2);
+    final_result.data.z = powf(final_result.data.z, 1.0 / 2.2);
 
     final_result *= 255.0;
     

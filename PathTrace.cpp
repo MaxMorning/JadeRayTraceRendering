@@ -91,7 +91,7 @@ typedef struct
 
 void save_image(unsigned char* target_img, int width, int height)
 {
-    FILE* file_ptr = fopen("RenderResult.bmp", "wb+");
+    FILE* file_ptr = fopen("RenderResultGL.bmp", "wb+");
 
     unsigned short fileType = 0x4d42;
     _BITMAPFILEHEADER fileHeader;
@@ -657,6 +657,7 @@ clock_t t1, t2;
 double dt, fps;
 unsigned int frameCounter = 0;
 vec3 eye_center = vec3(0);
+vec3 eye = vec3(0);
 mat4 cameraRotate = mat4(1);
 void display(GLFWwindow* window, bool swap_buffer) {
 
@@ -668,7 +669,7 @@ void display(GLFWwindow* window, bool swap_buffer) {
     t1 = t2;
 
     // 相机参数
-    vec3 eye = vec3(-sin(radians(rotateAngle)) * cos(radians(upAngle)), sin(radians(upAngle)), cos(radians(rotateAngle)) * cos(radians(upAngle)));
+    eye = vec3(-sin(radians(rotateAngle)) * cos(radians(upAngle)), sin(radians(upAngle)), cos(radians(rotateAngle)) * cos(radians(upAngle)));
     eye.x *= r; eye.y *= r; eye.z *= r;
     cameraRotate = lookAt(eye, eye_center, vec3(0, 1, 0));  // 相机注视着原点
     cameraRotate = inverse(cameraRotate);   // lookat 的逆矩阵将光线方向进行转换
@@ -859,7 +860,7 @@ void set_shader(std::string fshader_path, int spp)
 void generate_arguments()
 {
     std::ofstream fout("render_args.txt");
-    fout << eye_center.x << ' ' << eye_center.y << ' ' << eye_center.z << std::endl;
+    fout << eye.x << ' ' << eye.y << ' ' << eye.z << std::endl;
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 4; ++col) {
             fout << cameraRotate[row][col] << ' ';
@@ -941,6 +942,9 @@ int main()
     size_t nTriangles = triangles.size();
 
     std::cout << "Model load done:  " << nTriangles << " Triangles." << std::endl;
+    std::cout << "First Triangle: " << triangles[0].p1.x << ' ' << triangles[0].p1.y << ' ' << triangles[0].p1.z << std::endl;
+    std::cout << "First Triangle: " << triangles[0].p2.x << ' ' << triangles[0].p2.y << ' ' << triangles[0].p2.z << std::endl;
+    std::cout << "First Triangle: " << triangles[0].p3.x << ' ' << triangles[0].p3.y << ' ' << triangles[0].p3.z << std::endl;
 
     // 建立 bvh
     BVHNode testNode;
