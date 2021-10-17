@@ -25,12 +25,16 @@ using namespace glm;
 #define INF 2147483647
 #define WIDTH 1024
 #define HEIGHT 1024
+
+#define DIFFUSE 0
+#define MIRROR 1
 // ----------------------------------------------------------------------------- //
 
 // 物体表面材质定义
 struct Material {
     vec3 emissive = vec3(0, 0, 0);  // 作为光源时的发光颜色
     vec3 brdf = vec3(0.8, 0.8, 0.8); // BRDF
+    int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
 };
 
 // 三角形定义
@@ -962,6 +966,7 @@ int main()
 
     Material m;
     m.brdf = vec3(0.8, 0.8, 0.8);
+    m.reflex_mode = DIFFUSE;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
     m.brdf = vec3(1, 1, 1);
