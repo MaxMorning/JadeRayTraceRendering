@@ -897,6 +897,8 @@ void generate_arguments()
 
         fout << obj_materials[i].emissive.x << ' ' << obj_materials[i].emissive.y << ' ' << obj_materials[i].emissive.z << std::endl;
         fout << obj_materials[i].brdf.x << ' ' << obj_materials[i].brdf.y << ' ' << obj_materials[i].brdf.z << std::endl;
+        fout << obj_materials[i].reflex_mode << std::endl;
+
         fout << (obj_normalize[i] ? 1 : 0) << std::endl;
     }
 
@@ -965,28 +967,37 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.8, 0.8, 0.8);
-    m.reflex_mode = DIFFUSE;
+    m.brdf = vec3(0.8, 0.4, 0.8);
+    m.reflex_mode = MIRROR;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
     m.brdf = vec3(1, 1, 1);
     m.emissive = vec3(20, 100, 0);
+    m.reflex_mode = DIFFUSE;
     readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
 
     // Cornell Box
 //    r = 8;
 //    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
 //    m.brdf = vec3(0.72, 0.72, 0.72);
+//    m.reflex_mode = MIRROR;
 //    readObj("cornell.obj", triangles, m, trans_mat, false);
 //
+//    m.brdf = vec3(0.72, 0.72, 0.72);
+//    m.reflex_mode = DIFFUSE;
+//    readObj("cornell_floor.obj", triangles, m, trans_mat, false);
+//
 //    m.brdf = vec3(0.72, 0, 0);
+//    m.reflex_mode = DIFFUSE;
 //    readObj("cornell_left.obj", triangles, m, trans_mat, false);
 //
 //    m.brdf = vec3(0, 0.72, 0);
+//    m.reflex_mode = DIFFUSE;
 //    readObj("cornell_right.obj", triangles, m, trans_mat, false);
 //
 //    m.brdf = vec3(0.78, 0.78, 0.78);
 //    m.emissive = vec3(40, 40, 40);
+//    m.reflex_mode = DIFFUSE;
 //    readObj("light.obj", triangles, m, trans_mat, false);
 
     size_t nTriangles = triangles.size();

@@ -930,7 +930,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             vec3_dv obj_emissive = triangles_cu[obj_hit.index].emissive;
             if (obj_emissive.data.x > 1.5e-4 || obj_emissive.data.y > 1.5e-4 || obj_emissive.data.x > 1.5e-4) {
                 // hit a emit triangle
-                l_dir = obj_emissive;
+                l_dir = obj_emissive * obj_hit_fr;
                 break;
             }
             else {
@@ -956,7 +956,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     }
                     else {
                         // sample from HDR
-                        l_dir = sampleHdr(out_direction);
+                        l_dir = sampleHdr(out_direction) * obj_hit_fr;
                         break;
                     }                   
                 }
