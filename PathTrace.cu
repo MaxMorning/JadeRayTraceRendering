@@ -39,9 +39,8 @@ using namespace std;
 #define DIFFUSE 0
 #define MIRROR 1
 
-#define NO_REFRACT 0
-#define SUB_SURFACE 1
-#define DIR_REFRA 2
+#define NO_REFRACT 1.4e-5
+#define SUB_SURFACE 0.9999
 // BMP Operation
 // 文件信息头结构体
 typedef struct
@@ -287,7 +286,7 @@ struct Material {
     vec3_dv emissive = vec3_dv(0, 0, 0);  // 作为光源时的发光颜色
     vec3_dv brdf = vec3_dv(0.8, 0.8, 0.8); // BRDF
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
-    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
+    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
     vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
     float refract_dec_rate;     // 折射衰减率
 };
@@ -323,7 +322,7 @@ struct Triangle_cu {
     vec3_dv emissive;      // 自发光参数
     vec3_dv brdf;          // BRDF
     int reflex_mode;      // 反射模式，漫反射0 / 镜面反射1
-    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
+    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
     vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
     float refract_dec_rate;     // 折射衰减率
 };
@@ -451,7 +450,7 @@ __host__ float size(Triangle triangle)
 {
     vec3_hs v_1 = triangle.p2 - triangle.p1;
     vec3_hs v_2 = triangle.p3 - triangle.p1;
-    vec3_hs cross_product = vec3_dv(v_1.data.y * v_2.data.z - v_1.data.z * v_2.data.y, v_1.data.z * v_2.data.x - v_1.data.x * v_2.data.z, v_1.data.x * v_2.data.y - v_1.data.y * v_2.data.x);
+    vec3_hs cross_product = vec3_hs(v_1.data.y * v_2.data.z - v_1.data.z * v_2.data.y, v_1.data.z * v_2.data.x - v_1.data.x * v_2.data.z, v_1.data.x * v_2.data.y - v_1.data.y * v_2.data.x);
     return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
@@ -850,7 +849,7 @@ __device__ float size(Triangle_cu triangle)
     return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
-__device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu) {
+__device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* curand_state, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu, int* triangle_index_mapping_cu, float* prefix_size_sum_cu, Obj_seg* obj_segs_cu) {
     vec3_dv l_dir = vec3_dv(0, 0, 0);
     int stack_offset = 0;
     vec3_dv stack_dir[STACK_CAPACITY];
@@ -863,11 +862,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     while (stack_offset < STACK_CAPACITY) {
         l_dir = vec3_dv(0, 0, 0);
         vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * (1.0 / PI);
-        int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode == NO_REFRACT ? 1 : 2;
+        int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode > NO_REFRACT ? 2 : 1;
         float select_reflex_refract = curand_uniform(curand_state);
-        if (select_reflex_refract < 0.5 && triangles_cu[obj_hit.index].refract_mode != NO_REFRACT) {
+        if (select_reflex_refract < 0.5 && triangles_cu[obj_hit.index].refract_mode > NO_REFRACT) {
             // process refract
-            if (triangles_cu[obj_hit.index].refract_mode == SUB_SURFACE) {
+            if (triangles_cu[obj_hit.index].refract_mode < SUB_SURFACE) {
                 // process sub surface
                 // indir light
                 // test RR
@@ -878,18 +877,21 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     // find target triangle index
                     int left = obj_segs_cu[triangles_cu[obj_hit.index].obj_idx].begin_idx;
                     int right = obj_segs_cu[triangles_cu[obj_hit.index].obj_idx].end_idx;
-                    int middle = (left + right) / 2;
-                    while (left < right) {
-                        if (random_idx < prefix_size_sum_cu[middle]) {
-                            right = middle - 1;
-                        }
-                        else if (random_idx > prefix_size_sum_cu[middle]) {
-                            left = middle + 1;
-                        }
+                    int middle = 0;
+                    while (left < right - 1) {
                         middle = (left + right) / 2;
+                        if (random_idx < prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                            right = middle;
+                        }
+                        else if (random_idx > prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                            left = middle;
+                        }
+                        // middle = (left + right) / 2;
                     }
-
+                    // printf("Hit\n");
                     // middle is the target triangle
+                    middle = triangle_index_mapping_cu[middle];
+
                     // sample a random point on selected triangle
                     float rand_x = curand_uniform(curand_state);
                     float rand_y = curand_uniform(curand_state);
@@ -906,7 +908,8 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
                     float fai_value = 2 * PI * curand_uniform(curand_state);
                     vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-                    if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                    vec3_dv inner_direction = random_point - ray_src;
+                    if (dot(ray_direction, t_i.norm) * dot(inner_direction, t_i.norm) > 0) {
                         ray_direction *= -1;
                     }
 
@@ -918,10 +921,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
                         // Hit something
                         ray_direction *= -1;
-                        vec3_dv distance = random_point - src_point;
-                        indir_rate = triangles_cu[obj_hit.index].refract_rate * triangles_cu[obj_hit.index].refract_dec_rate / dot(distance, distance) / RR_RATE; // todo bssrdf
+                        // vec3_dv distance = random_point - obj_hit.hitPoint;
+                        vec3_dv indir_rate = triangles_cu[obj_hit.index].refract_rate * triangles_cu[obj_hit.index].refract_dec_rate / RR_RATE; // todo bssrdf
                         ray_src = new_hit.hitPoint;
                         out_direction = ray_direction;
+
 
                         stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
                         stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate;
@@ -930,6 +934,8 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         obj_hit_normal = triangles_cu[obj_hit.index].norm;
                     }
                     else {
+                        // sample from HDR
+                        l_dir = sampleHdr(ray_direction) / RR_RATE * reflex_refract_select_rate;
                         break;
                     }
                 }
@@ -939,6 +945,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             }
             else {
                 // process direct refract
+                float triangle_miu = triangles_cu[obj_hit.index].refract_mode;
+                float R0 = (1 - triangle_miu) / (1 + triangle_miu) * (1 - triangle_miu) / (1 + triangle_miu);
+
+                // Schlick approximation
+                float cosine_i = abs(dot(obj_hit_normal, out_direction));
                 // todo implement
                 break;
             }
@@ -1097,7 +1108,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     return l_dir;
 }
 
-__global__ void render_pixel(unsigned char* target_img, curandState* curand_states, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu)
+__global__ void render_pixel(unsigned char* target_img, curandState* curand_states, Triangle_cu* triangles_cu, BVHNode_cu* node_cu, int* emitTrianglesIndices_cu, int* triangle_index_mapping_cu, float* prefix_size_sum_cu, Obj_seg* obj_segs_cu)
 {
     int target_pixel_width = blockIdx.x * TILE_SIZE + threadIdx.x;
     int target_pixel_height = blockIdx.y * TILE_SIZE + threadIdx.y;
@@ -1128,7 +1139,7 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
         } else {
             // printf("Hit!\n");
             vec3_dv Le = triangles_cu[firstHit.index].emissive;
-            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[(threadIdx.x + 7 * threadIdx.y) % RAND_SIZE], triangles_cu, node_cu, emitTrianglesIndices_cu);
+            vec3_dv Li = pathTracing(firstHit, ray.direction * -1, &curand_states[(threadIdx.x + 7 * threadIdx.y) % RAND_SIZE], triangles_cu, node_cu, emitTrianglesIndices_cu, triangle_index_mapping_cu, prefix_size_sum_cu, obj_segs_cu);
             // vec3_dv Li = vec3_dv(1, 1, 1);
             color = Le + Li;
         }
@@ -1399,7 +1410,7 @@ int main()
     unsigned char* d_target_img;
     cudaMalloc(&d_target_img, RENDER_WIDTH * RENDER_HEIGHT * 3);
 
-    render_pixel <<<grid, block>>> (d_target_img, curand_states, triangles_cu, node_cu, emitTrianglesIndices_cu);
+    render_pixel <<<grid, block>>> (d_target_img, curand_states, triangles_cu, node_cu, emitTrianglesIndices_cu, triangle_index_mapping_cu, prefix_size_sum_cu, obj_segs_cu);
 
     unsigned char* h_target_img = (unsigned char*)malloc(RENDER_WIDTH * RENDER_HEIGHT * 3);
 

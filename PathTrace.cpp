@@ -30,8 +30,7 @@ using namespace glm;
 #define MIRROR 1
 
 #define NO_REFRACT 0
-#define SUB_SURFACE 1
-#define DIR_REFRA 2
+#define SUB_SURFACE 0.5
 // ----------------------------------------------------------------------------- //
 
 // 物体表面材质定义
@@ -39,8 +38,8 @@ struct Material {
     vec3 emissive = vec3(0, 0, 0);  // 作为光源时的发光颜色
     vec3 brdf = vec3(0.8, 0.8, 0.8); // BRDF
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
-    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
-    vec3 refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
+    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
+    vec3 refract_rate = vec3(0.8, 0.8, 0.8); // 折射吸光率
     float refract_dec_rate;     // 折射衰减率
 };
 
@@ -977,10 +976,10 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.4, 0.4, 0.4);
-    m.reflex_mode = MIRROR;
+    m.brdf = vec3(0, 0, 0);
+    m.reflex_mode = DIFFUSE;
     m.refract_mode = SUB_SURFACE;
-    m.refract_rate = vec3(0.3, 0.3, 0.3);
+    m.refract_rate = vec3(1, 1, 1);
     m.refract_dec_rate = 0.8;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
