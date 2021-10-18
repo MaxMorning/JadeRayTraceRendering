@@ -903,17 +903,71 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     Triangle_cu& t_i = triangles_cu[middle];
                     vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
 
-                    // random select a ray from random_point
+                    // sample from emitting triangles
+                    for (int i = 0; i < nEmitTriangles_dv; ++i) {
+                        // random select a point on light triangle
+                        float rand_x = curand_uniform(curand_state);
+                        float rand_y = curand_uniform(curand_state);
+                        if (rand_x + rand_y > 1) {
+                            rand_x = 1 - rand_x;
+                            rand_y = 1 - rand_y;
+                        }
+        
+                        int emit_tri_idx = emitTrianglesIndices_cu[i];
+                        Triangle_cu& emit_i = triangles_cu[emit_tri_idx];
+                        vec3_dv random_emit_point = emit_i.p1 + (emit_i.p2 - emit_i.p1) * rand_x + (emit_i.p3 - emit_i.p1) * rand_y;
+        
+                        // test block
+                        vec3_dv obj_light_direction = random_emit_point - random_point;
+                        // check obj_light_direction and out_direction are in the same semi-sphere
+                        if (dot(obj_light_direction, t_i.norm) * dot(out_direction, t_i.norm) < 0) {
+                            continue;
+                        }
+                        Ray new_ray;
+                        new_ray.startPoint = random_point;
+                        new_ray.direction = obj_light_direction;
+                        HitResult hit_result = hitBVH(new_ray, middle, triangles_cu, node_cu);
+        
+                        if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                            float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
+                            l_dir += triangles_cu[hit_result.index].emissive * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
+                                        / direction_length_square / direction_length_square * size(emit_i); // todo here change brdf to bssrdf
+                        }
+                    }
+
+                    // sample from HDR
+                    // random select a point on HDR Texture
                     float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
                     float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
                     float fai_value = 2 * PI * curand_uniform(curand_state);
                     vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+                    if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                        ray_direction *= -1;
+                    }
+        
+                    // test block
+                    Ray new_ray;
+                    new_ray.startPoint = random_point;
+                    new_ray.direction = ray_direction;
+                    HitResult hit_result = hitBVH(new_ray,middle, triangles_cu, node_cu);
+                    if (!hit_result.isHit) {
+                        vec3_dv skyColor = sampleHdr(ray_direction);
+                        l_dir += skyColor * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI; // todo here change brdf to bssrdf
+                    }
+
+                    l_dir *= reflex_refract_select_rate;
+
+                    // random select a ray from random_point
+                    cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
+                    sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+                    fai_value = 2 * PI * curand_uniform(curand_state);
+                    ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
                     vec3_dv inner_direction = random_point - ray_src;
                     if (dot(ray_direction, t_i.norm) * dot(inner_direction, t_i.norm) > 0) {
                         ray_direction *= -1;
                     }
 
-                    Ray new_ray;
+                    // Ray new_ray;
                     new_ray.startPoint = random_point;
                     new_ray.direction = ray_direction;
                     HitResult new_hit = hitBVH(new_ray, middle, triangles_cu, node_cu);
