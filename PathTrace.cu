@@ -39,6 +39,9 @@ using namespace std;
 #define DIFFUSE 0
 #define MIRROR 1
 
+#define NO_REFRACT 0
+#define SUB_SURFACE 1
+#define DIR_REFRA 2
 // BMP Operation
 // 文件信息头结构体
 typedef struct
@@ -284,11 +287,16 @@ struct Material {
     vec3_dv emissive = vec3_dv(0, 0, 0);  // 作为光源时的发光颜色
     vec3_dv brdf = vec3_dv(0.8, 0.8, 0.8); // BRDF
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
+    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
+    vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
+    float refract_dec_rate;     // 折射衰减率
 };
 
 // 三角形定义
 // used in host
 struct Triangle {
+    int index;              // 三角形的编号
+    int obj_idx;            // 所属物件id
     vec3_hs p1, p2, p3;    // 顶点坐标
     vec3_hs norm;    // 顶点法线
     Material material;  // 材质
@@ -309,11 +317,15 @@ struct BVHNode {
 
 // used in device
 struct Triangle_cu {
+    int obj_idx;           // 所属物件id
     vec3_dv p1, p2, p3;    // 顶点坐标
     vec3_dv norm;          // 法线
     vec3_dv emissive;      // 自发光参数
     vec3_dv brdf;          // BRDF
     int reflex_mode;      // 反射模式，漫反射0 / 镜面反射1
+    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
+    vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
+    float refract_dec_rate;     // 折射衰减率
 };
 
 // used in device
@@ -324,6 +336,13 @@ struct BVHNode_cu {
 };
 
 // 读取 obj
+struct Obj_seg {
+    int begin_idx;
+    int end_idx;
+};
+
+int obj_idx_cnt = 0;
+Obj_seg* obj_segs;
 __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Material material, float trans[4][4], bool normal_transform) {
 
     // 顶点位置，索引
@@ -404,9 +423,14 @@ __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Mater
     int offset = triangles.size();  // 增量更新
 
     triangles.resize(offset + indices.size() / 3);
+    obj_segs[obj_idx_cnt].begin_idx = offset;
+    obj_segs[obj_idx_cnt].end_idx = triangles.size() - 1;
 
+    int triangle_index = 0;
     for (int i = 0; i < indices.size(); i += 3) {
         Triangle& t = triangles[offset + i / 3];
+        t.index = triangle_index;
+        t.obj_idx = obj_idx_cnt;
         // 传顶点属性
         t.p1 = vertices[indices[i]];
         t.p2 = vertices[indices[i + 1]];
@@ -416,7 +440,19 @@ __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Mater
 
         // 传材质
         t.material = material;
+
+        ++triangle_index;
     }
+
+    ++obj_idx_cnt;
+}
+
+__host__ float size(Triangle triangle)
+{
+    vec3_hs v_1 = triangle.p2 - triangle.p1;
+    vec3_hs v_2 = triangle.p3 - triangle.p1;
+    vec3_hs cross_product = vec3_dv(v_1.data.y * v_2.data.z - v_1.data.z * v_2.data.y, v_1.data.z * v_2.data.x - v_1.data.x * v_2.data.z, v_1.data.x * v_2.data.y - v_1.data.y * v_2.data.x);
+    return 0.5 * sqrt(dot(cross_product, cross_product));
 }
 
 // 按照三角形中心排序 -- 比较函数
@@ -827,67 +863,126 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     while (stack_offset < STACK_CAPACITY) {
         l_dir = vec3_dv(0, 0, 0);
         vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * (1.0 / PI);
+        int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode == NO_REFRACT ? 1 : 2;
+        float select_reflex_refract = curand_uniform(curand_state);
+        if (select_reflex_refract < 0.5 && triangles_cu[obj_hit.index].refract_mode != NO_REFRACT) {
+            // process refract
+            if (triangles_cu[obj_hit.index].refract_mode == SUB_SURFACE) {
+                // process sub surface
+                // indir light
+                // test RR
+                float rr_result = curand_uniform(curand_state);
+                if (rr_result < RR_RATE) {
+                    // sample a random point on current object
+                    float random_idx = curand_uniform(curand_state) * prefix_size_sum_cu[obj_segs_cu[triangles_cu[obj_hit.index].obj_idx].end_idx];
+                    // find target triangle index
+                    int left = obj_segs_cu[triangles_cu[obj_hit.index].obj_idx].begin_idx;
+                    int right = obj_segs_cu[triangles_cu[obj_hit.index].obj_idx].end_idx;
+                    int middle = (left + right) / 2;
+                    while (left < right) {
+                        if (random_idx < prefix_size_sum_cu[middle]) {
+                            right = middle - 1;
+                        }
+                        else if (random_idx > prefix_size_sum_cu[middle]) {
+                            left = middle + 1;
+                        }
+                        middle = (left + right) / 2;
+                    }
 
-        if (triangles_cu[obj_hit.index].reflex_mode == DIFFUSE) {
-            // Diffuse process
-            // direct light
-            // sample from emit triangles
-            for (int i = 0; i < nEmitTriangles_dv; ++i) {
-                // random select a point on light triangle
-                float rand_x = curand_uniform(curand_state);
-                float rand_y = curand_uniform(curand_state);
-                if (rand_x + rand_y > 1) {
-                    rand_x = 1 - rand_x;
-                    rand_y = 1 - rand_y;
+                    // middle is the target triangle
+                    // sample a random point on selected triangle
+                    float rand_x = curand_uniform(curand_state);
+                    float rand_y = curand_uniform(curand_state);
+                    if (rand_x + rand_y > 1) {
+                        rand_x = 1 - rand_x;
+                        rand_y = 1 - rand_y;
+                    }
+
+                    Triangle_cu& t_i = triangles_cu[middle];
+                    vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
+
+                    // random select a ray from random_point
+                    float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
+                    float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+                    float fai_value = 2 * PI * curand_uniform(curand_state);
+                    vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+                    if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                        ray_direction *= -1;
+                    }
+
+                    Ray new_ray;
+                    new_ray.startPoint = random_point;
+                    new_ray.direction = ray_direction;
+                    HitResult new_hit = hitBVH(new_ray, middle, triangles_cu, node_cu);
+                    float3 new_hit_emissive = triangles_cu[new_hit.index].emissive.data;
+                    if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
+                        // Hit something
+                        ray_direction *= -1;
+                        vec3_dv distance = random_point - src_point;
+                        indir_rate = triangles_cu[obj_hit.index].refract_rate * triangles_cu[obj_hit.index].refract_dec_rate / dot(distance, distance) / RR_RATE; // todo bssrdf
+                        ray_src = new_hit.hitPoint;
+                        out_direction = ray_direction;
+
+                        stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
+                        stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate;
+                        ++stack_offset;
+                        obj_hit = new_hit;
+                        obj_hit_normal = triangles_cu[obj_hit.index].norm;
+                    }
+                    else {
+                        break;
+                    }
                 }
-
-                int emit_tri_idx = emitTrianglesIndices_cu[i];
-                Triangle_cu& t_i = triangles_cu[emit_tri_idx];
-                vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
-
-                // test block
-                vec3_dv obj_light_direction = random_point - ray_src;
-                // check obj_light_direction and out_direction are in the same semi-sphere
-                if (dot(obj_light_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
-                    continue;
-                }
-                Ray new_ray;
-                new_ray.startPoint = ray_src;
-                new_ray.direction = obj_light_direction;
-                HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
-
-                if (hit_result.isHit && hit_result.index == emit_tri_idx) {
-                    float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
-                    l_dir += triangles_cu[hit_result.index].emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
-                                / direction_length_square / direction_length_square * size(t_i);
+                else {
+                    break;
                 }
             }
-
-
-            // sample from HDR
-            // random select a point on HDR Texture
-            float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
-            float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
-            float fai_value = 2 * PI * curand_uniform(curand_state);
-            vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-            if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
-                ray_direction *= -1;
+            else {
+                // process direct refract
+                // todo implement
+                break;
             }
-
-            // test block
-            Ray new_ray;
-            new_ray.startPoint = ray_src;
-            new_ray.direction = ray_direction;
-            HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
-            if (!hit_result.isHit) {
-                vec3_dv skyColor = sampleHdr(ray_direction);
-                l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI;
-            }
-
-            float rr_result = curand_uniform(curand_state);
-            if (rr_result < RR_RATE) {
-                vec3_dv indir_rate = vec3_dv(0, 0, 0);
-                // random select a ray from src_point
+        }
+        else {
+            // process reflex
+            if (triangles_cu[obj_hit.index].reflex_mode == DIFFUSE) {
+                // Diffuse process
+                // direct light
+                // sample from emit triangles
+                for (int i = 0; i < nEmitTriangles_dv; ++i) {
+                    // random select a point on light triangle
+                    float rand_x = curand_uniform(curand_state);
+                    float rand_y = curand_uniform(curand_state);
+                    if (rand_x + rand_y > 1) {
+                        rand_x = 1 - rand_x;
+                        rand_y = 1 - rand_y;
+                    }
+    
+                    int emit_tri_idx = emitTrianglesIndices_cu[i];
+                    Triangle_cu& t_i = triangles_cu[emit_tri_idx];
+                    vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
+    
+                    // test block
+                    vec3_dv obj_light_direction = random_point - ray_src;
+                    // check obj_light_direction and out_direction are in the same semi-sphere
+                    if (dot(obj_light_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                        continue;
+                    }
+                    Ray new_ray;
+                    new_ray.startPoint = ray_src;
+                    new_ray.direction = obj_light_direction;
+                    HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
+    
+                    if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                        float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
+                        l_dir += triangles_cu[hit_result.index].emissive * obj_hit_fr * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
+                                    / direction_length_square / direction_length_square * size(t_i);
+                    }
+                }
+    
+    
+                // sample from HDR
+                // random select a point on HDR Texture
                 float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
                 float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
                 float fai_value = 2 * PI * curand_uniform(curand_state);
@@ -895,74 +990,99 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                 if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
                     ray_direction *= -1;
                 }
-
+    
+                // test block
                 Ray new_ray;
                 new_ray.startPoint = ray_src;
                 new_ray.direction = ray_direction;
-                HitResult new_hit = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
-                float3 new_hit_emissive = triangles_cu[new_hit.index].emissive.data;
-                if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
-                    // Hit something
-                    ray_direction *= -1;
-                    indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit_normal)) / RR_RATE;
-                    ray_src = new_hit.hitPoint;
-                    out_direction = ray_direction;
+                HitResult hit_result = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
+                if (!hit_result.isHit) {
+                    vec3_dv skyColor = sampleHdr(ray_direction);
+                    l_dir += skyColor * obj_hit_fr * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI;
+                }
 
-                    // if (stack_offset >= STACK_CAPACITY) {
-                    //     return vec3_dv(1);
-                    // }
-                    stack_dir[stack_offset] = l_dir;
-                    stack_indir_rate[stack_offset] = indir_rate;
-                    ++stack_offset;
-                    obj_hit = new_hit;
-                    obj_hit_normal = triangles_cu[obj_hit.index].norm;
-                }
-                else {
-                    break;
-                }
-            }
-            else {
-                break;
-            }
-        }
-        else {
-            // Mirror process
-            vec3_dv obj_emissive = triangles_cu[obj_hit.index].emissive;
-            if (obj_emissive.data.x > 1.5e-4 || obj_emissive.data.y > 1.5e-4 || obj_emissive.data.x > 1.5e-4) {
-                // hit a emit triangle
-                l_dir = obj_emissive * obj_hit_fr;
-                break;
-            }
-            else {
-                // hit a normal triangle
-                // RR to decide issue a light
+                l_dir *= reflex_refract_select_rate;
+    
                 float rr_result = curand_uniform(curand_state);
                 if (rr_result < RR_RATE) {
-                    out_direction = obj_hit_normal * (2 * dot(out_direction, triangles_cu[obj_hit.index].norm)) - out_direction;
-                    // check hit
+                    vec3_dv indir_rate = vec3_dv(0, 0, 0);
+                    // random select a ray from src_point
+                    float cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
+                    float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
+                    float fai_value = 2 * PI * curand_uniform(curand_state);
+                    vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
+                    if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                        ray_direction *= -1;
+                    }
+    
                     Ray new_ray;
                     new_ray.startPoint = ray_src;
-                    new_ray.direction = out_direction;
+                    new_ray.direction = ray_direction;
                     HitResult new_hit = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
-                    if (new_hit.isHit) {
-                        // hit some triangle (include emit one)
-                        out_direction *= -1;
+                    float3 new_hit_emissive = triangles_cu[new_hit.index].emissive.data;
+                    if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
+                        // Hit something
+                        ray_direction *= -1;
+                        indir_rate = obj_hit_fr * abs(dot(ray_direction, obj_hit_normal)) / RR_RATE;
                         ray_src = new_hit.hitPoint;
+                        out_direction = ray_direction;
+    
+                        // if (stack_offset >= STACK_CAPACITY) {
+                        //     return vec3_dv(1);
+                        // }
+                        stack_dir[stack_offset] = l_dir;
+                        stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate;
+                        ++stack_offset;
                         obj_hit = new_hit;
                         obj_hit_normal = triangles_cu[obj_hit.index].norm;
-                        stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
-                        stack_indir_rate[stack_offset] = obj_hit_fr / RR_RATE;
-                        ++stack_offset;
                     }
                     else {
-                        // sample from HDR
-                        l_dir = sampleHdr(out_direction) * obj_hit_fr;
                         break;
-                    }                   
+                    }
                 }
                 else {
-                    // RR failed
                     break;
+                }
+            }
+            else {
+                // Mirror process
+                vec3_dv obj_emissive = triangles_cu[obj_hit.index].emissive;
+                if (obj_emissive.data.x > 1.5e-4 || obj_emissive.data.y > 1.5e-4 || obj_emissive.data.x > 1.5e-4) {
+                    // hit a emit triangle
+                    l_dir = obj_emissive * obj_hit_fr * reflex_refract_select_rate;
+                    break;
+                }
+                else {
+                    // hit a normal triangle
+                    // RR to decide issue a light
+                    float rr_result = curand_uniform(curand_state);
+                    if (rr_result < RR_RATE) {
+                        out_direction = obj_hit_normal * (2 * dot(out_direction, triangles_cu[obj_hit.index].norm)) - out_direction;
+                        // check hit
+                        Ray new_ray;
+                        new_ray.startPoint = ray_src;
+                        new_ray.direction = out_direction;
+                        HitResult new_hit = hitBVH(new_ray, obj_hit.index, triangles_cu, node_cu);
+                        if (new_hit.isHit) {
+                            // hit some triangle (include emit one)
+                            out_direction *= -1;
+                            ray_src = new_hit.hitPoint;
+                            obj_hit = new_hit;
+                            obj_hit_normal = triangles_cu[obj_hit.index].norm;
+                            stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
+                            stack_indir_rate[stack_offset] = obj_hit_fr / RR_RATE * reflex_refract_select_rate;
+                            ++stack_offset;
+                        }
+                        else {
+                            // sample from HDR
+                            l_dir = sampleHdr(out_direction) * obj_hit_fr * reflex_refract_select_rate;
+                            break;
+                        }                   
+                    }
+                    else {
+                        // RR failed
+                        break;
+                    }
                 }
             }
         }
@@ -1073,6 +1193,9 @@ int main()
         fin >> obj_materials[i].emissive.data.x >> obj_materials[i].emissive.data.y >> obj_materials[i].emissive.data.z;
         fin >> obj_materials[i].brdf.data.x >> obj_materials[i].brdf.data.y >> obj_materials[i].brdf.data.z;
         fin >> obj_materials[i].reflex_mode;
+        fin >> obj_materials[i].refract_mode;
+        fin >> obj_materials[i].refract_rate.data.x >> obj_materials[i].refract_rate.data.y >> obj_materials[i].refract_rate.data.z;
+        fin >> obj_materials[i].refract_dec_rate;
 
         int is_normalize;
         fin >> is_normalize;
@@ -1082,6 +1205,8 @@ int main()
     fin.close();
 
     vector<Triangle> triangles;
+    obj_segs = new Obj_seg[obj_cnt];
+
     for (int i = 0; i < obj_cnt; ++i) {
         readObj(obj_file_name[i], triangles, obj_materials[i], (float (*)[4])&obj_trans_mats[i * 16], obj_normalize[i]);
     }
@@ -1089,6 +1214,16 @@ int main()
     size_t nTriangles = triangles.size();
 
     cout << "Model load done:  " << nTriangles << " Triangles." << endl;
+
+    // 计算前缀和
+    float* prefix_size_sum = new float[nTriangles];
+    for (int i = 0; i < obj_cnt; ++i) {
+        float size_sum = 0;
+        for (int idx = obj_segs[i].begin_idx; idx <= obj_segs[i].end_idx; ++idx) {
+            size_sum += size(triangles[idx]);
+            prefix_size_sum[idx] = size_sum;
+        }
+    }
 
     // 建立 bvh
     BVHNode testNode;
@@ -1106,9 +1241,15 @@ int main()
     // 编码 三角形, 材质
     vector<Triangle_cu> triangles_encoded(nTriangles);
     vector<int> emit_triangles_indices;
+
+    vector<int> triangle_index_mapping(nTriangles);
     for (int i = 0; i < nTriangles; i++) {
         Triangle& t = triangles[i];
         Material& m_ = t.material;
+
+        triangles_encoded[i].obj_idx = t.obj_idx;
+        triangle_index_mapping[t.obj_idx] = i;
+
         // 顶点位置
         triangles_encoded[i].p1 = vec3_dv(t.p1);
         triangles_encoded[i].p2 = vec3_dv(t.p2);
@@ -1119,6 +1260,9 @@ int main()
         triangles_encoded[i].emissive = m_.emissive;
         triangles_encoded[i].brdf = m_.brdf;
         triangles_encoded[i].reflex_mode = m_.reflex_mode;
+        triangles_encoded[i].refract_mode = m_.refract_mode;
+        triangles_encoded[i].refract_rate = m_.refract_rate;
+        triangles_encoded[i].refract_dec_rate = m_.refract_dec_rate;
 
         // 统计发光三角形
         if (m_.emissive.data.x > 1.5e-4 || m_.emissive.data.y > 1.5e-4 || m_.emissive.data.z > 1.5e-4) {
@@ -1145,11 +1289,25 @@ int main()
     Triangle_cu* triangles_cu;
     BVHNode_cu* node_cu;
     int* emitTrianglesIndices_cu;
+    int* triangle_index_mapping_cu;
+    float* prefix_size_sum_cu;
+    Obj_seg* obj_segs_cu;
+
     // 三角形数组
     cudaMalloc(&triangles_cu, nTriangles * sizeof(Triangle_cu));
     cudaMemcpy(triangles_cu, &triangles_encoded[0], nTriangles * sizeof(Triangle_cu), cudaMemcpyHostToDevice);
     cout << "Triangle Set." << endl;
     check_error("set triangles");
+
+    // 折射相关数据
+    cudaMalloc(&triangle_index_mapping_cu, nTriangles * sizeof(int));
+    cudaMemcpy(triangle_index_mapping_cu, &triangle_index_mapping[0], nTriangles * sizeof(int), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&prefix_size_sum_cu, nTriangles * sizeof(float));
+    cudaMemcpy(prefix_size_sum_cu, prefix_size_sum, nTriangles * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&obj_segs_cu, obj_cnt * sizeof(Obj_seg));
+    cudaMemcpy(obj_segs_cu, obj_segs, obj_cnt * sizeof(Obj_seg), cudaMemcpyHostToDevice);
 
     // BVHNode 数组
     cudaMalloc(&node_cu, nodes_encoded.size() * sizeof(BVHNode_cu));
