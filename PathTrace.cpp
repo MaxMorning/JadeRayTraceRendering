@@ -977,13 +977,17 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.8, 0.4, 0.8);
+    m.brdf = vec3(0.4, 0.4, 0.4);
     m.reflex_mode = MIRROR;
+    m.refract_mode = SUB_SURFACE;
+    m.refract_rate = vec3(0.3, 0.3, 0.3);
+    m.refract_dec_rate = 0.8;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
     m.brdf = vec3(1, 1, 1);
     m.emissive = vec3(20, 100, 0);
     m.reflex_mode = DIFFUSE;
+    m.refract_mode = NO_REFRACT;
     readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
 
     // Cornell Box
