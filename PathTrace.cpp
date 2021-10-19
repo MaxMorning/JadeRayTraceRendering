@@ -30,7 +30,7 @@ using namespace glm;
 #define MIRROR 1
 
 #define NO_REFRACT 0
-#define SUB_SURFACE 0.5
+#define SUB_SURFACE 1
 // ----------------------------------------------------------------------------- //
 
 // 物体表面材质定义
@@ -38,9 +38,9 @@ struct Material {
     vec3 emissive = vec3(0, 0, 0);  // 作为光源时的发光颜色
     vec3 brdf = vec3(0.8, 0.8, 0.8); // BRDF
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
-    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
+    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
     vec3 refract_rate = vec3(0.8, 0.8, 0.8); // 折射吸光率
-    float refract_dec_rate;     // 折射衰减率
+    float refract_index;     // 折射率
 };
 
 // 三角形定义
@@ -906,7 +906,7 @@ void generate_arguments()
         fout << obj_materials[i].reflex_mode << std::endl;
         fout << obj_materials[i].refract_mode << std::endl;
         fout << obj_materials[i].refract_rate.x << ' ' << obj_materials[i].refract_rate.y << ' ' << obj_materials[i].refract_rate.z << std::endl;
-        fout << obj_materials[i].refract_dec_rate << std::endl;
+        fout << obj_materials[i].refract_index << std::endl;
 
         fout << (obj_normalize[i] ? 1 : 0) << std::endl;
     }
@@ -979,8 +979,8 @@ int main()
     m.brdf = vec3(0, 0, 0);
     m.reflex_mode = DIFFUSE;
     m.refract_mode = SUB_SURFACE;
-    m.refract_rate = vec3(1, 1, 1);
-    m.refract_dec_rate = 0.8;
+    m.refract_rate = vec3(0.8, 1, 0.8);
+    m.refract_dec_rate = 1.44;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
 
     m.brdf = vec3(1, 1, 1);

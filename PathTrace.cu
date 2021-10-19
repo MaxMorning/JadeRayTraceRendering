@@ -34,13 +34,14 @@ using namespace std;
 #define BVH_STACK_CAPACITY 128
 #define RR_RATE 0.9
 #define PI 3.1415926
+#define Natural_E 2.71828182846
 #define RAND_SIZE 31
 
 #define DIFFUSE 0
 #define MIRROR 1
 
-#define NO_REFRACT 1.4e-5
-#define SUB_SURFACE 0.9999
+#define NO_REFRACT 0
+#define SUB_SURFACE 1
 // BMP Operation
 // 文件信息头结构体
 typedef struct
@@ -286,9 +287,9 @@ struct Material {
     vec3_dv emissive = vec3_dv(0, 0, 0);  // 作为光源时的发光颜色
     vec3_dv brdf = vec3_dv(0.8, 0.8, 0.8); // BRDF
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
-    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
+    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
     vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
-    float refract_dec_rate;     // 折射衰减率
+    float refract_index;     // 折射率
 };
 
 // 三角形定义
@@ -322,9 +323,9 @@ struct Triangle_cu {
     vec3_dv emissive;      // 自发光参数
     vec3_dv brdf;          // BRDF
     int reflex_mode;      // 反射模式，漫反射0 / 镜面反射1
-    float refract_mode;           // 折射模式，无透射0 / 次表面散射0.5 / 直接折射 - 折射率
+    int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
     vec3_dv refract_rate = vec3_dv(0.8, 0.8, 0.8); // 折射吸光率
-    float refract_dec_rate;     // 折射衰减率
+    float refract_index;     //  折射率
 };
 
 // used in device
@@ -862,11 +863,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     while (stack_offset < STACK_CAPACITY) {
         l_dir = vec3_dv(0, 0, 0);
         vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * (1.0 / PI);
-        int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode > NO_REFRACT ? 2 : 1;
+        int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode != NO_REFRACT ? 2 : 1;
         float select_reflex_refract = curand_uniform(curand_state);
-        if (select_reflex_refract < 0.5 && triangles_cu[obj_hit.index].refract_mode > NO_REFRACT) {
+        if (select_reflex_refract < 0.5 && triangles_cu[obj_hit.index].refract_mode != NO_REFRACT) {
             // process refract
-            if (triangles_cu[obj_hit.index].refract_mode < SUB_SURFACE) {
+            if (triangles_cu[obj_hit.index].refract_mode == SUB_SURFACE) {
                 // process sub surface
                 // indir light
                 // test RR
@@ -902,6 +903,16 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
 
                     Triangle_cu& t_i = triangles_cu[middle];
                     vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
+                    vec3_dv inner_direction = random_point - ray_src;
+                    float inner_distance = sqrt(dot(inner_direction, inner_direction));
+                    vec3_dv bssrdf = (pow(Natural_E, triangles_cu[middle].refract_dec_rate * -1 / inner_distance) + pow(Natural_E, triangles_cu[middle].refract_dec_rate * (-1.0 / 3.0) / inner_distance))
+                                        / (triangles_cu[middle].refract_dec_rate * (8 * PI * inner_distance));
+
+                    float R0 = (triangles_cu[middle].refract_index - 1) / (triangles_cu[middle].refract_index + 1) * (triangles_cu[middle].refract_index - 1) / (triangles_cu[middle].refract_index + 1);
+                    float one_cosine_i = 1 - abs(dot(obj_hit_normal, out_direction));
+                    float one_cosine_i_sqr = one_cosine_i * one_cosine_i;
+                    float fresnel_rate_i = R0 + (1 - R0) * one_cosine_i_sqr * one_cosine_i_sqr * one_cosine_i;
+                    bssrdf *= fresnel_rate_i;
 
                     // sample from emitting triangles
                     for (int i = 0; i < nEmitTriangles_dv; ++i) {
@@ -919,8 +930,8 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
         
                         // test block
                         vec3_dv obj_light_direction = random_emit_point - random_point;
-                        // check obj_light_direction and out_direction are in the same semi-sphere
-                        if (dot(obj_light_direction, t_i.norm) * dot(out_direction, t_i.norm) < 0) {
+                        // check obj_light_direction and inner_direction are not in the same semi-sphere
+                        if (dot(obj_light_direction, t_i.norm) * dot(inner_direction, t_i.norm) > 0) {
                             continue;
                         }
                         Ray new_ray;
@@ -929,8 +940,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         HitResult hit_result = hitBVH(new_ray, middle, triangles_cu, node_cu);
         
                         if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                            float one_cosine_o = 1 - abs(dot(normalize(obj_light_direction), triangles_cu[middle].norm));
+                            float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
+                            float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
                             float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
-                            l_dir += triangles_cu[hit_result.index].emissive * abs(dot(obj_hit_normal, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
+                            l_dir += triangles_cu[hit_result.index].emissive * fresnel_rate_o * bssrdf * abs(dot(triangles_cu[middle].norm, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
                                         / direction_length_square / direction_length_square * size(emit_i); // todo here change brdf to bssrdf
                         }
                     }
@@ -952,7 +966,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     HitResult hit_result = hitBVH(new_ray,middle, triangles_cu, node_cu);
                     if (!hit_result.isHit) {
                         vec3_dv skyColor = sampleHdr(ray_direction);
-                        l_dir += skyColor * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI; // todo here change brdf to bssrdf
+                        l_dir += skyColor * bssrdf * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI; // todo here change brdf to bssrdf
                     }
 
                     l_dir *= reflex_refract_select_rate;
@@ -962,7 +976,6 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     sine_theta = sqrt(1 - cosine_theta * cosine_theta);
                     fai_value = 2 * PI * curand_uniform(curand_state);
                     ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-                    vec3_dv inner_direction = random_point - ray_src;
                     if (dot(ray_direction, t_i.norm) * dot(inner_direction, t_i.norm) > 0) {
                         ray_direction *= -1;
                     }
@@ -975,8 +988,12 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
                         // Hit something
                         ray_direction *= -1;
+                        float one_cosine_o = 1 - abs(dot(normalize(obj_light_direction), triangles_cu[middle].norm));
+                        float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
+                        float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
+                        
                         // vec3_dv distance = random_point - obj_hit.hitPoint;
-                        vec3_dv indir_rate = triangles_cu[obj_hit.index].refract_rate * triangles_cu[obj_hit.index].refract_dec_rate / RR_RATE; // todo bssrdf
+                        vec3_dv indir_rate = bssrdf * fresnel_rate_o * abs(dot(ray_direction, triangles_cu[middle].norm)) * prefix_size_sum[obj_segs_cu[triangles_cu[middle].obj_idx].end_idx] / RR_RATE; // todo bssrdf
                         ray_src = new_hit.hitPoint;
                         out_direction = ray_direction;
 
@@ -988,8 +1005,6 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         obj_hit_normal = triangles_cu[obj_hit.index].norm;
                     }
                     else {
-                        // sample from HDR
-                        l_dir = sampleHdr(ray_direction) / RR_RATE * reflex_refract_select_rate;
                         break;
                     }
                 }
@@ -999,7 +1014,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             }
             else {
                 // process direct refract
-                float triangle_miu = triangles_cu[obj_hit.index].refract_mode;
+                float triangle_miu = triangles_cu[obj_hit.index].refract_index;
                 float R0 = (1 - triangle_miu) / (1 + triangle_miu) * (1 - triangle_miu) / (1 + triangle_miu);
 
                 // Schlick approximation
@@ -1260,7 +1275,7 @@ int main()
         fin >> obj_materials[i].reflex_mode;
         fin >> obj_materials[i].refract_mode;
         fin >> obj_materials[i].refract_rate.data.x >> obj_materials[i].refract_rate.data.y >> obj_materials[i].refract_rate.data.z;
-        fin >> obj_materials[i].refract_dec_rate;
+        fin >> obj_materials[i].refract_index;
 
         int is_normalize;
         fin >> is_normalize;
@@ -1327,7 +1342,7 @@ int main()
         triangles_encoded[i].reflex_mode = m_.reflex_mode;
         triangles_encoded[i].refract_mode = m_.refract_mode;
         triangles_encoded[i].refract_rate = m_.refract_rate;
-        triangles_encoded[i].refract_dec_rate = m_.refract_dec_rate;
+        triangles_encoded[i].refract_index = m_.refract_index;
 
         // 统计发光三角形
         if (m_.emissive.data.x > 1.5e-4 || m_.emissive.data.y > 1.5e-4 || m_.emissive.data.z > 1.5e-4) {
