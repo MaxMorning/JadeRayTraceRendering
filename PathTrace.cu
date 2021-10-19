@@ -841,6 +841,14 @@ __device__ HitResult hitBVH(Ray ray, int src_object_idx, Triangle_cu* triangles_
 
 // ----------------------------------------------------------------------------- //
 
+__device__ vec3_dv pow(float ceil, vec3_dv power) {
+    return vec3_dv(pow(ceil, power.data.x), pow(ceil, power.data.y), pow(ceil, power.data.z));
+}
+
+__device__ vec3_dv div_f_vec3(float scalar, vec3_dv v3) {
+    return vec3_dv(scalar / v3.data.x, scalar / v3.data.y, scalar / v3.data.z);
+}
+
 // 路径追踪
 __device__ float size(Triangle_cu triangle)
 {
@@ -881,10 +889,10 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     int middle = 0;
                     while (left < right - 1) {
                         middle = (left + right) / 2;
-                        if (random_idx < prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                        if (random_idx <= prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
                             right = middle;
                         }
-                        else if (random_idx > prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                        else if (random_idx >= prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
                             left = middle;
                         }
                         // middle = (left + right) / 2;
@@ -905,14 +913,16 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     vec3_dv random_point = t_i.p1 + (t_i.p2 - t_i.p1) * rand_x + (t_i.p3 - t_i.p1) * rand_y;
                     vec3_dv inner_direction = random_point - ray_src;
                     float inner_distance = sqrt(dot(inner_direction, inner_direction));
-                    vec3_dv bssrdf = (pow(Natural_E, triangles_cu[middle].refract_dec_rate * -1 / inner_distance) + pow(Natural_E, triangles_cu[middle].refract_dec_rate * (-1.0 / 3.0) / inner_distance))
-                                        / (triangles_cu[middle].refract_dec_rate * (8 * PI * inner_distance));
+                    vec3_dv bssrdf = (pow(Natural_E, div_f_vec3(-1 * inner_distance, triangles_cu[middle].refract_rate)) + pow(Natural_E, div_f_vec3(-1 * inner_distance / 3.0, triangles_cu[middle].refract_rate)))
+                                        / (triangles_cu[middle].refract_rate * (8 * PI * inner_distance));
+
 
                     float R0 = (triangles_cu[middle].refract_index - 1) / (triangles_cu[middle].refract_index + 1) * (triangles_cu[middle].refract_index - 1) / (triangles_cu[middle].refract_index + 1);
                     float one_cosine_i = 1 - abs(dot(obj_hit_normal, out_direction));
                     float one_cosine_i_sqr = one_cosine_i * one_cosine_i;
                     float fresnel_rate_i = R0 + (1 - R0) * one_cosine_i_sqr * one_cosine_i_sqr * one_cosine_i;
                     bssrdf *= fresnel_rate_i;
+                    // printf("%f, %f, %f\n", bssrdf.data.x, bssrdf.data.y, bssrdf.data.z);
 
                     // sample from emitting triangles
                     for (int i = 0; i < nEmitTriangles_dv; ++i) {
@@ -931,21 +941,22 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         // test block
                         vec3_dv obj_light_direction = random_emit_point - random_point;
                         // check obj_light_direction and inner_direction are not in the same semi-sphere
-                        if (dot(obj_light_direction, t_i.norm) * dot(inner_direction, t_i.norm) > 0) {
-                            continue;
-                        }
+                        // if (dot(obj_light_direction, t_i.norm) * dot(inner_direction, t_i.norm) < 0) {
+                        //     continue;
+                        // }
                         Ray new_ray;
                         new_ray.startPoint = random_point;
                         new_ray.direction = obj_light_direction;
                         HitResult hit_result = hitBVH(new_ray, middle, triangles_cu, node_cu);
         
                         if (hit_result.isHit && hit_result.index == emit_tri_idx) {
+                            // printf("Hit\n");
                             float one_cosine_o = 1 - abs(dot(normalize(obj_light_direction), triangles_cu[middle].norm));
                             float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
                             float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
                             float direction_length_square = obj_light_direction.data.x * obj_light_direction.data.x + obj_light_direction.data.y * obj_light_direction.data.y + obj_light_direction.data.z * obj_light_direction.data.z;
                             l_dir += triangles_cu[hit_result.index].emissive * fresnel_rate_o * bssrdf * abs(dot(triangles_cu[middle].norm, obj_light_direction) * dot(triangles_cu[hit_result.index].norm, obj_light_direction)) 
-                                        / direction_length_square / direction_length_square * size(emit_i); // todo here change brdf to bssrdf
+                                        / direction_length_square / direction_length_square * size(emit_i) / PI * prefix_size_sum_cu[obj_segs_cu[t_i.obj_idx].end_idx];
                         }
                     }
 
@@ -955,7 +966,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     float sine_theta = sqrt(1 - cosine_theta * cosine_theta);
                     float fai_value = 2 * PI * curand_uniform(curand_state);
                     vec3_dv ray_direction = vec3_dv(sine_theta * cos(fai_value), sine_theta * sin(fai_value), cosine_theta);
-                    if (dot(ray_direction, obj_hit_normal) * dot(out_direction, obj_hit_normal) < 0) {
+                    if (dot(ray_direction, t_i.norm) * dot(inner_direction, t_i.norm) < 0) {
                         ray_direction *= -1;
                     }
         
@@ -965,8 +976,12 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     new_ray.direction = ray_direction;
                     HitResult hit_result = hitBVH(new_ray,middle, triangles_cu, node_cu);
                     if (!hit_result.isHit) {
+                        float one_cosine_o = 1 - abs(dot(ray_direction, t_i.norm));
+                        float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
+                        float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
+
                         vec3_dv skyColor = sampleHdr(ray_direction);
-                        l_dir += skyColor * bssrdf * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI; // todo here change brdf to bssrdf
+                        l_dir += skyColor * fresnel_rate_o * bssrdf * abs(dot(t_i.norm, ray_direction)) * 2; // * 2 means * 2pi / pi (2pi is 1 / pdf, 1 / pi is the constant value in bssrdf)
                     }
 
                     l_dir *= reflex_refract_select_rate;
@@ -988,17 +1003,17 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                     if (new_hit.isHit && (new_hit_emissive.x < 1.5e-4 && new_hit_emissive.y < 1.5e-4 && new_hit_emissive.z < 1.5e-4)) {
                         // Hit something
                         ray_direction *= -1;
-                        float one_cosine_o = 1 - abs(dot(normalize(obj_light_direction), triangles_cu[middle].norm));
+                        float one_cosine_o = 1 - abs(dot(ray_direction, triangles_cu[middle].norm));
                         float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
                         float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
                         
                         // vec3_dv distance = random_point - obj_hit.hitPoint;
-                        vec3_dv indir_rate = bssrdf * fresnel_rate_o * abs(dot(ray_direction, triangles_cu[middle].norm)) * prefix_size_sum[obj_segs_cu[triangles_cu[middle].obj_idx].end_idx] / RR_RATE; // todo bssrdf
+                        vec3_dv indir_rate = bssrdf * fresnel_rate_o * abs(dot(ray_direction, triangles_cu[middle].norm)) * prefix_size_sum_cu[obj_segs_cu[triangles_cu[middle].obj_idx].end_idx] * 2 / RR_RATE; // * 2 means * 2pi / pi (2pi is 1 / pdf, 1 / pi is the constant value in bssrdf)
                         ray_src = new_hit.hitPoint;
                         out_direction = ray_direction;
 
 
-                        stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
+                        stack_dir[stack_offset] = l_dir;
                         stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate;
                         ++stack_offset;
                         obj_hit = new_hit;
@@ -1305,6 +1320,14 @@ int main()
         }
     }
 
+    // for (int i = 0; i < obj_cnt; ++i) {
+    //     cout << obj_segs[i].begin_idx << ' ' << obj_segs[i].end_idx << endl;
+    // }
+    // for (int i = 0; i < nTriangles; ++i) {
+    //     cout << prefix_size_sum[i] << ' ';
+    // }
+    // cout << endl;
+
     // 建立 bvh
     BVHNode testNode;
     testNode.left = 255;
@@ -1328,7 +1351,7 @@ int main()
         Material& m_ = t.material;
 
         triangles_encoded[i].obj_idx = t.obj_idx;
-        triangle_index_mapping[t.obj_idx] = i;
+        triangle_index_mapping[t.index] = i;
 
         // 顶点位置
         triangles_encoded[i].p1 = vec3_dv(t.p1);
