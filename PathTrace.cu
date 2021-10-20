@@ -846,6 +846,10 @@ __device__ vec3_dv pow(float ceil, vec3_dv power) {
     return vec3_dv(pow(ceil, power.data.x), pow(ceil, power.data.y), pow(ceil, power.data.z));
 }
 
+__device__ vec3_dv pow(vec3_dv ceil, float power) {
+    return vec3_dv(pow(ceil.data.x, power), pow(ceil.data.y, power), pow(ceil.data.z, power));
+}
+
 __device__ vec3_dv div_f_vec3(float scalar, vec3_dv v3) {
     return vec3_dv(scalar / v3.data.x, scalar / v3.data.y, scalar / v3.data.z);
 }
@@ -891,6 +895,11 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
     HitResult obj_hit = hit;
     vec3_dv obj_hit_normal = triangles_cu[obj_hit.index].norm;
     while (stack_offset < STACK_CAPACITY) {
+        vec3_dv& obj_emissive = triangles_cu[obj_hit.index].emissive;
+        if (obj_emissive.data.x > 1.4e-5 || obj_emissive.data.y > 1.4e-5 || obj_emissive.data.z > 1.4e-5) {
+            l_dir = obj_emissive;
+            break;
+        }
         l_dir = vec3_dv(0, 0, 0);
         vec3_dv obj_hit_fr = triangles_cu[obj_hit.index].brdf * (1.0 / PI);
         int reflex_refract_select_rate = triangles_cu[obj_hit.index].refract_mode != NO_REFRACT ? 2 : 1;
@@ -1062,7 +1071,8 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
 
                 // generate first refract ray
                 bool full_reflex = false;
-                vec3_dv refract_ray = gen_refract_ray(out_direction * -1, obj_hit_normal, 1.0 / triangle_miu, full_reflex); // full_reflex should be false here
+                vec3_dv rev_out_direction = out_direction * -1;
+                vec3_dv refract_ray = gen_refract_ray(rev_out_direction, obj_hit_normal, 1.0 / triangle_miu, full_reflex); // full_reflex should be false here
                 vec3_dv l_indir_rate = vec3_dv(1 - fresnel_rate_i, 1 - fresnel_rate_i, 1 - fresnel_rate_i);
 
                 Ray new_ray;
@@ -1075,7 +1085,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         refract_ray = gen_refract_ray(refract_ray, triangles_cu[new_hit.index].norm, triangle_miu, full_reflex);
                         vec3_dv distance = new_ray.startPoint - new_hit.hitPoint;
 
-                        l_indir_rate *= triangles_cu[new_hit.index].refract_rate * sqrt(dot(distance, distance));
+                        l_indir_rate *= pow(triangles_cu[new_hit.index].refract_rate, sqrt(dot(distance, distance)));
                         new_ray.startPoint = new_hit.hitPoint;
 
                         float one_cosine_o = 1 - abs(dot(refract_ray, triangles_cu[new_hit.index].norm));
@@ -1083,22 +1093,23 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
 
                         float reflex_refract_select = curand_uniform(curand_state);
-                        if (full_reflex || reflex_refract_select < 0.5) {
+                        if (full_reflex || reflex_refract_select < 0.2) {
                             // full reflex / reflex
-                            refract_ray = triangles_cu[new_hit.index].norm * (2 * dot(refract_ray, triangles_cu[new_hit.index].norm)) - refract_ray;
+                            refract_ray = refract_ray - triangles_cu[new_hit.index].norm * (2 * dot(refract_ray, triangles_cu[new_hit.index].norm));
                             new_ray.direction = refract_ray;
                             if (!full_reflex) {
-                                l_indir_rate *= fresnel_rate_o * 2;
+                                l_indir_rate *= fresnel_rate_o * 5;
                             }
                         }
                         else {
                             // refract
-                            l_indir_rate *= (1.0 - fresnel_rate_o) * 2; // * 2 means the pdf of reflex_refract_select
+                            l_indir_rate *= (1.0 - fresnel_rate_o) * 1.25; // * 1.25 means the pdf of reflex_refract_select
                             break;
                         }
                     }
                     else {
                         // obj surface is not close
+                        return vec3_dv(0, 0, 0);
                         break;
                     }
                 }
@@ -1115,8 +1126,8 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         ray_src = new_hit.hitPoint;
                         obj_hit = new_hit;
                         obj_hit_normal = triangles_cu[obj_hit.index].norm;
-                        stack_dir[stack_offset] = triangles_cu[obj_hit.index].emissive * (reflex_refract_select_rate / RR_RATE);
-                        stack_indir_rate[stack_offset] = indir_rate * (reflex_refract_select_rate / RR_RATE);
+                        stack_dir[stack_offset] = vec3_dv(0, 0, 0);
+                        stack_indir_rate[stack_offset] = l_indir_rate * (reflex_refract_select_rate / RR_RATE);
                         ++stack_offset;
                     }
                     else {
@@ -1257,7 +1268,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                             ray_src = new_hit.hitPoint;
                             obj_hit = new_hit;
                             obj_hit_normal = triangles_cu[obj_hit.index].norm;
-                            stack_dir[stack_offset] = triangles_cu[obj_hit.index].emissive * (reflex_refract_select_rate / RR_RATE);
+                            stack_dir[stack_offset] = vec3_dv(0, 0, 0);
                             stack_indir_rate[stack_offset] = obj_hit_fr * (reflex_refract_select_rate / RR_RATE);
                             ++stack_offset;
                         }
