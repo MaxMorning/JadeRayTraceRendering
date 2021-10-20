@@ -36,6 +36,7 @@ using namespace std;
 #define PI 3.1415926
 #define Natural_E 2.71828182846
 #define RAND_SIZE 31
+#define MAX_FULL_REFLEX_TIME 32
 
 #define DIFFUSE 0
 #define MIRROR 1
@@ -849,6 +850,27 @@ __device__ vec3_dv div_f_vec3(float scalar, vec3_dv v3) {
     return vec3_dv(scalar / v3.data.x, scalar / v3.data.y, scalar / v3.data.z);
 }
 
+// reference : NVIDIA Cg 3.1
+__device__ inline vec3_dv gen_refract_ray(vec3_dv& direction_in, vec3_dv normal_line, float eta, bool& full_reflex)
+{
+    float cosi = dot(direction_in, normal_line);
+    if (cosi > 0) {
+        normal_line *= -1;
+    }
+    else {
+        cosi *= -1;
+    }
+    float cost2 = 1.0f - eta * eta * (1.0f - cosi * cosi);
+    if (cost2 > 0) {
+        full_reflex = false;
+        return direction_in * eta + (normal_line * (eta * cosi - sqrt(cost2)));
+    }
+    else {
+        full_reflex = true;
+        return vec3_dv(0, 0, 0);
+    }
+}
+
 // 路径追踪
 __device__ float size(Triangle_cu triangle)
 {
@@ -1029,13 +1051,84 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
             }
             else {
                 // process direct refract
+                // when execute next while loop, the light should not in the object inside
                 float triangle_miu = triangles_cu[obj_hit.index].refract_index;
                 float R0 = (1 - triangle_miu) / (1 + triangle_miu) * (1 - triangle_miu) / (1 + triangle_miu);
 
                 // Schlick approximation
-                float cosine_i = abs(dot(obj_hit_normal, out_direction));
-                // todo implement
-                break;
+                float one_cosine_i = 1 - abs(dot(obj_hit_normal, out_direction));
+                float one_cosine_i_sqr = one_cosine_i * one_cosine_i;
+                float fresnel_rate_i = R0 + (1 - R0) * one_cosine_i_sqr * one_cosine_i_sqr * one_cosine_i;
+
+                // generate first refract ray
+                bool full_reflex = false;
+                vec3_dv refract_ray = gen_refract_ray(out_direction * -1, obj_hit_normal, 1.0 / triangle_miu, full_reflex); // full_reflex should be false here
+                vec3_dv l_indir_rate = vec3_dv(1 - fresnel_rate_i, 1 - fresnel_rate_i, 1 - fresnel_rate_i);
+
+                Ray new_ray;
+                new_ray.startPoint = ray_src;
+                new_ray.direction = refract_ray;
+                HitResult new_hit = obj_hit;
+                for (int i = 0; i < MAX_FULL_REFLEX_TIME; ++i) {
+                    new_hit = hitBVH(new_ray, new_hit.index, triangles_cu, node_cu);
+                    if (new_hit.isHit) {
+                        refract_ray = gen_refract_ray(refract_ray, triangles_cu[new_hit.index].norm, triangle_miu, full_reflex);
+                        vec3_dv distance = new_ray.startPoint - new_hit.hitPoint;
+
+                        l_indir_rate *= triangles_cu[new_hit.index].refract_rate * sqrt(dot(distance, distance));
+                        new_ray.startPoint = new_hit.hitPoint;
+
+                        float one_cosine_o = 1 - abs(dot(refract_ray, triangles_cu[new_hit.index].norm));
+                        float one_cosine_o_sqr = one_cosine_o * one_cosine_o;
+                        float fresnel_rate_o = R0 - (1 - R0) * one_cosine_o_sqr * one_cosine_o_sqr * one_cosine_o;
+
+                        float reflex_refract_select = curand_uniform(curand_state);
+                        if (full_reflex || reflex_refract_select < 0.5) {
+                            // full reflex / reflex
+                            refract_ray = triangles_cu[new_hit.index].norm * (2 * dot(refract_ray, triangles_cu[new_hit.index].norm)) - refract_ray;
+                            new_ray.direction = refract_ray;
+                            if (!full_reflex) {
+                                l_indir_rate *= fresnel_rate_o * 2;
+                            }
+                        }
+                        else {
+                            // refract
+                            l_indir_rate *= (1.0 - fresnel_rate_o) * 2; // * 2 means the pdf of reflex_refract_select
+                            break;
+                        }
+                    }
+                    else {
+                        // obj surface is not close
+                        break;
+                    }
+                }
+                
+                // check hit
+                // RR to decide issue the light
+                float rr_result = curand_uniform(curand_state);
+                if (rr_result < RR_RATE) {
+                    new_ray.direction = refract_ray;
+                    new_hit = hitBVH(new_ray, new_hit.index, triangles_cu, node_cu);
+                    if (new_hit.isHit) {
+                        // hit some triangle (include emit one)
+                        out_direction = refract_ray * -1;
+                        ray_src = new_hit.hitPoint;
+                        obj_hit = new_hit;
+                        obj_hit_normal = triangles_cu[obj_hit.index].norm;
+                        stack_dir[stack_offset] = triangles_cu[obj_hit.index].emissive * (reflex_refract_select_rate / RR_RATE);
+                        stack_indir_rate[stack_offset] = indir_rate * (reflex_refract_select_rate / RR_RATE);
+                        ++stack_offset;
+                    }
+                    else {
+                        // sample from HDR
+                        l_dir = sampleHdr(refract_ray) * l_indir_rate * (reflex_refract_select_rate / RR_RATE);
+                        break;
+                    }
+                }
+                else {
+                    // RR failed
+                    break;
+                }
             }
         }
         else {
@@ -1164,13 +1257,13 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                             ray_src = new_hit.hitPoint;
                             obj_hit = new_hit;
                             obj_hit_normal = triangles_cu[obj_hit.index].norm;
-                            stack_dir[stack_offset] = l_dir; // here l_dir should be 0, 0, 0
-                            stack_indir_rate[stack_offset] = obj_hit_fr / RR_RATE * reflex_refract_select_rate;
+                            stack_dir[stack_offset] = triangles_cu[obj_hit.index].emissive * (reflex_refract_select_rate / RR_RATE);
+                            stack_indir_rate[stack_offset] = obj_hit_fr * (reflex_refract_select_rate / RR_RATE);
                             ++stack_offset;
                         }
                         else {
                             // sample from HDR
-                            l_dir = sampleHdr(out_direction) * obj_hit_fr * reflex_refract_select_rate;
+                            l_dir = sampleHdr(out_direction) * obj_hit_fr * (reflex_refract_select_rate / RR_RATE);
                             break;
                         }                   
                     }
