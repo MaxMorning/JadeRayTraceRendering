@@ -871,7 +871,7 @@ __device__ inline vec3_dv gen_refract_ray(vec3_dv& direction_in, vec3_dv normal_
     }
     else {
         full_reflex = true;
-        return vec3_dv(0, 0, 0);
+        return direction_in;
     }
 }
 
