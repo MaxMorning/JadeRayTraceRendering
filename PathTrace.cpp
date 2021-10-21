@@ -979,28 +979,30 @@ int main()
     Material m;
     m.brdf = vec3(0.002, 0.002, 0.002);
     m.reflex_mode = MIRROR;
-    m.refract_mode = DIR_REFRACT;
-    m.refract_rate = vec3(1, 1, 1);
+    m.refract_mode = SUB_SURFACE;
+    m.refract_rate = vec3(0.8, 0.8, 0.8);
     m.refract_index = 1.5;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -1, 0), vec3(2, 2, 2)),true);
+//    readObj("happyBuddha.obj", triangles, m, getTransformMatrix(vec3(-90, 0, 0), vec3(0, -1, 1), vec3(1.5, 1.5, 1.5)),true);
 
     m.brdf = vec3(1, 1, 1);
-    m.emissive = vec3(20, 20, 80);
+    m.emissive = vec3(20, 200, 0);
     m.reflex_mode = DIFFUSE;
     m.refract_mode = NO_REFRACT;
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.2, 0.3, 0), vec3(3, 1, 3)), true);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(1.8, 0.8, -0.5), vec3(3, 1, 3)), true);
 
     // Cornell Box
 //    r = 8;
 //    mat4 trans_mat = getTransformMatrix(vec3(0, 0, 0), vec3(-2.796, -2.796, 0), vec3(0.01, 0.01, 0.01));
 //    m.brdf = vec3(0, 0, 0);
-//    m.reflex_mode = MIRROR;
-//    m.refract_mode = DIR_REFRACT;
-//    m.refract_rate = vec3(1, 1, 1);
+    m.reflex_mode = MIRROR;
+    m.refract_mode = NO_REFRACT;
+    m.refract_rate = vec3(0.7, 0.7, 0.7);
+    m.emissive = vec3(0);
 //    m.refract_index = 1.44;
-//    mat4 trans_mat2 = getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, 0), vec3(2, 2, 2));
+    mat4 trans_mat2 = getTransformMatrix(vec3(0, 0, 0), vec3(0, -1.125, 0), vec3(2, 0.25, 2));
 ////    readObj("cornell_ball.obj", triangles, m, trans_mat2, true);
-//    readObj("box.obj", triangles, m, trans_mat2, true);
+    readObj("box.obj", triangles, m, trans_mat2, true);
 
 //    m.brdf = vec3(0.72, 0.72, 0.72);
 //    m.reflex_mode = DIFFUSE;
