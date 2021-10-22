@@ -427,7 +427,7 @@ __host__ void readObj(const string& filepath, vector<Triangle>& triangles, Mater
     obj_segs[obj_idx_cnt].begin_idx = offset;
     obj_segs[obj_idx_cnt].end_idx = triangles.size() - 1;
 
-    int triangle_index = 0;
+    int triangle_index = obj_segs[obj_idx_cnt].begin_idx;
     for (int i = 0; i < indices.size(); i += 3) {
         Triangle& t = triangles[offset + i / 3];
         t.index = triangle_index;
@@ -917,10 +917,10 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                 int middle = 0;
                 while (left < right - 1) {
                     middle = (left + right) / 2;
-                    if (random_idx <= prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                    if (random_idx <= prefix_size_sum_cu[middle]) {
                         right = middle;
                     }
-                    else if (random_idx >= prefix_size_sum_cu[triangle_index_mapping_cu[middle]]) {
+                    else if (random_idx >= prefix_size_sum_cu[middle]) {
                         left = middle;
                     }
                     // middle = (left + right) / 2;

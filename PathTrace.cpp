@@ -977,19 +977,27 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.002, 0.002, 0.002);
+    m.brdf = vec3(0.05, 0.05, 0.05);
     m.reflex_mode = MIRROR;
     m.refract_mode = SUB_SURFACE;
-    m.refract_rate = vec3(0.9, 0.2, 0.9);
-    m.refract_index = 2.4;
+    m.refract_rate = vec3(0.9, 0.1, 0.9);
+    m.refract_index = 2.01;
     readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, 0), vec3(0.2, 0.2, 0.2)),true);
+//    readObj("box.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, 0), vec3(0.2, 0.025, 0.2)), true);
+//    readObj("bunny.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, -0.1), vec3(0.2, 0.2, 0.2)),true);
 //    readObj("happyBuddha.obj", triangles, m, getTransformMatrix(vec3(-90, 0, 0), vec3(0, -0.1, 0.1), vec3(0.15, 0.15, 0.15)),true);
 
-    m.brdf = vec3(1, 1, 1);
+    m.brdf = vec3(0.9, 0.9, 0.9);
     m.emissive = vec3(200, 200, 200);
     m.reflex_mode = DIFFUSE;
     m.refract_mode = NO_REFRACT;
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(0.18, 0.08, -0.05), vec3(0.3, 0.1, 0.3)), true);
+    m.refract_index = 1.1;
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(0.08, 0.025, -0.05), vec3(0.3, 0.1, 0.3)), true);
+//    readObj("box.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.09, 0), vec3(0.018, 0.002, 0.018)), true);
+
+//    m.brdf = vec3(0.01, 0.01, 0.01);
+//    m.emissive = vec3(0, 0, 0);
+//    readObj("flashlightShell.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, 0, -0.01), vec3(0.02, 0.20, 0.02)), true);
 
     // Cornell Box
 //    r = 8;
