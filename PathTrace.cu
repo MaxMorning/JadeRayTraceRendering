@@ -202,6 +202,10 @@ struct vec3_dv {
         return vec3_dv(make_float3(data.x + opr2.data.x, data.y + opr2.data.y, data.z + opr2.data.z));
     }
 
+    __device__ inline vec3_dv operator+(float opr2) {
+        return vec3_dv(data.x + opr2, data.y + opr2, data.z + opr2);
+    }
+
     __device__ inline vec3_dv& operator+=(const vec3_dv& opr2) {
         data.x += opr2.data.x;
         data.y += opr2.data.y;
@@ -661,6 +665,16 @@ __global__ void init_curand(curandState* curand_states, int seed)
 __device__ vec3_dv toneMapping(vec3_dv c, float limit) {
     float luminance = 0.3 * c.data.x + 0.6 * c.data.y + 0.1 * c.data.z;
     return c * float(1.0 / (1.0 + luminance / limit));
+}
+
+#define ACES_A 2.51f
+#define ACES_B 0.03f
+#define ACES_C 2.43f
+#define ACES_D 0.59f
+#define ACES_E 0.14f
+
+__device__ vec3_dv ACESToneMapping(vec3_dv color) {
+    return (color * (color * ACES_A + ACES_B)) / (color * (color * ACES_C + ACES_D) + ACES_E);
 }
 
 // ----------------------------------------------------------------------------- //
@@ -1338,7 +1352,8 @@ __global__ void render_pixel(unsigned char* target_img, curandState* curand_stat
     final_result = final_result * vec3_dv(1.0 / spp, 1.0 / spp, 1.0 / spp);
     
     // tone mapping
-    final_result = toneMapping(final_result, 1.5);
+    // final_result = toneMapping(final_result, 1.5);
+    final_result = ACESToneMapping(final_result);
 
     // Gamma correction
     final_result.data.x = powf(final_result.data.x, 1.0 / 2.2);
