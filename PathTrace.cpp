@@ -41,6 +41,7 @@ struct Material {
     int reflex_mode;           // 反射模式，漫反射0 / 镜面反射1
     int refract_mode;           // 折射模式，无透射0 / 次表面散射1 / 直接折射2
     vec3 refract_rate = vec3(0.8, 0.8, 0.8); // 折射吸光率
+    vec3 refract_albedo = vec3(0.8, 0.8, 0.8); // 折射反照率
     float refract_index;     // 折射率
 };
 
@@ -907,6 +908,7 @@ void generate_arguments()
         fout << obj_materials[i].reflex_mode << std::endl;
         fout << obj_materials[i].refract_mode << std::endl;
         fout << obj_materials[i].refract_rate.x << ' ' << obj_materials[i].refract_rate.y << ' ' << obj_materials[i].refract_rate.z << std::endl;
+        fout << obj_materials[i].refract_albedo.x << ' ' << obj_materials[i].refract_albedo.y << ' ' << obj_materials[i].refract_albedo.z << std::endl;
         fout << obj_materials[i].refract_index << std::endl;
 
         fout << (obj_normalize[i] ? 1 : 0) << std::endl;
@@ -977,12 +979,14 @@ int main()
     printf("GL Version : %s\n", version_string);
 
     Material m;
-    m.brdf = vec3(0.05, 0.05, 0.05);
+    m.brdf = vec3(0.005, 0.005, 0.005);
     m.reflex_mode = MIRROR;
     m.refract_mode = SUB_SURFACE;
-    m.refract_rate = vec3(0.9, 0.1, 0.9);
-    m.refract_index = 2.01;
-    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, 0), vec3(0.2, 0.2, 0.2)),true);
+    m.refract_rate = vec3(0.6, 0.1, 0.3);
+    m.refract_albedo = vec3(0.001, 0.01, 0.006);
+    m.refract_index = 2.1;
+//    readObj("Master.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.5, 0), vec3(1, 1, 1)),true);
+    readObj("model.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.4, 0.3), vec3(0.8, 0.8, 0.8)),true);
 //    readObj("box.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, 0), vec3(0.2, 0.025, 0.2)), true);
 //    readObj("bunny.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1, -0.1), vec3(0.2, 0.2, 0.2)),true);
 //    readObj("happyBuddha.obj", triangles, m, getTransformMatrix(vec3(-90, 0, 0), vec3(0, -0.1, 0.1), vec3(0.15, 0.15, 0.15)),true);
@@ -992,7 +996,11 @@ int main()
     m.reflex_mode = DIFFUSE;
     m.refract_mode = NO_REFRACT;
     m.refract_index = 1.1;
-    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 0), vec3(0.08, 0.025, -0.05), vec3(0.3, 0.1, 0.3)), true);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(90, 0, 90), vec3(-0.5, -0.5, -0.0), vec3(1.5, 0.5, 1.5)), true);
+    m.emissive = vec3(100, 100, 100);
+    readObj("light.obj", triangles, m, getTransformMatrix(vec3(0, 90, 90), vec3(1.5, 0, 1.0), vec3(1.5, 0.5, 1.5)), true);
+//    readObj("Master_eye.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.05, -0.24, 0.17), vec3(0.4, 0.4, 0.4)),true);
+//    readObj("Master_light.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0.05, -0.05, 0.35), vec3(0.2, 0.2, 0.2)),true);
 //    readObj("box.obj", triangles, m, getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.09, 0), vec3(0.018, 0.002, 0.018)), true);
 
 //    m.brdf = vec3(0.01, 0.01, 0.01);
@@ -1008,7 +1016,7 @@ int main()
     m.refract_rate = vec3(0.7, 0.7, 0.7);
     m.emissive = vec3(0);
 //    m.refract_index = 1.44;
-    mat4 trans_mat2 = getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.1125, 0), vec3(0.2, 0.025, 0.2));
+    mat4 trans_mat2 = getTransformMatrix(vec3(0, 0, 0), vec3(0, -0.5625, 0), vec3(1, 0.125, 1));
 ////    readObj("cornell_ball.obj", triangles, m, trans_mat2, true);
     readObj("box.obj", triangles, m, trans_mat2, true);
 
