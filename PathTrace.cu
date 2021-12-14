@@ -43,6 +43,8 @@ using namespace std;
 
 #define NO_REFRACT 0
 #define SUB_SURFACE 1
+
+#define SSS_RATE 0.5
 // BMP Operation
 // 文件信息头结构体
 typedef struct
@@ -926,7 +928,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                 // process sub surface
                 // dir light
                 select_reflex_refract = curand_uniform(curand_state);
-                if (select_reflex_refract < 0.5) {
+                if (select_reflex_refract < SSS_RATE) {
                     // sample from emit triangles
                     vec3_dv obj_hit_fr_albedo = triangles_cu[obj_hit.index].refract_albedo * (1.0 / PI);
                     for (int i = 0; i < nEmitTriangles_dv; ++i) {
@@ -981,7 +983,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         l_dir += skyColor * obj_hit_fr_albedo * abs(dot(obj_hit_normal, ray_direction)) * 2 * PI;
                     }
 
-                    l_dir *= reflex_refract_select_rate * 2;
+                    l_dir *= reflex_refract_select_rate / SSS_RATE;
 
                     float rr_result = curand_uniform(curand_state);
                     if (rr_result < RR_RATE) {
@@ -1011,7 +1013,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                             //     return vec3_dv(1);
                             // }
                             stack_dir[stack_offset] = l_dir;
-                            stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate * 2;
+                            stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate / SSS_RATE;
                             ++stack_offset;
                             obj_hit = new_hit;
                             obj_hit_normal = triangles_cu[obj_hit.index].norm;
@@ -1128,7 +1130,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                         l_dir += skyColor * fresnel_rate_o * bssrdf * abs(dot(t_i.norm, ray_direction)) * 2; // * 2 means * 2pi / pi (2pi is 1 / pdf, 1 / pi is the constant value in bssrdf)
                     }
 
-                    l_dir *= reflex_refract_select_rate;
+                    l_dir *= reflex_refract_select_rate / (1 - SSS_RATE);
 
                     // random select a ray from random_point
                     cosine_theta = 2 * (curand_uniform(curand_state) - 0.5);
@@ -1161,7 +1163,7 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
 
 
                             stack_dir[stack_offset] = l_dir;
-                            stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate;
+                            stack_indir_rate[stack_offset] = indir_rate * reflex_refract_select_rate / (1 - SSS_RATE);
                             ++stack_offset;
                             obj_hit = new_hit;
                             obj_hit_normal = triangles_cu[obj_hit.index].norm;
@@ -1386,12 +1388,12 @@ __device__ vec3_dv pathTracing(HitResult hit, vec3_dv direction, curandState* cu
                             obj_hit = new_hit;
                             obj_hit_normal = triangles_cu[obj_hit.index].norm;
                             stack_dir[stack_offset] = vec3_dv(0, 0, 0);
-                            stack_indir_rate[stack_offset] = obj_hit_fr * (reflex_refract_select_rate / RR_RATE);
+                            stack_indir_rate[stack_offset] = obj_hit_fr * (reflex_refract_select_rate / (RR_RATE / PI));
                             ++stack_offset;
                         }
                         else {
                             // sample from HDR
-                            l_dir = sampleHdr(out_direction) * obj_hit_fr * (reflex_refract_select_rate / RR_RATE);
+                            l_dir = sampleHdr(out_direction) * obj_hit_fr * (reflex_refract_select_rate / (RR_RATE / PI));
                             break;
                         }                   
                     }
